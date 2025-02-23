@@ -1,4 +1,4 @@
-BA_ZHAW/Anaconda3-2023.07-2-Linux-x86_64.sh
+BA-Transformer/Anaconda3-2023.07-2-Linux-x86_64.sh
 data_10x
 
 GNN/models/IEDB/IEDB_embeddings.pkl
@@ -14,14 +14,14 @@ GNN/models/*.pkl
 *.csv
 
 
-BA_ZHAW/data/cleaned_datasets
-BA_ZHAW/data/concatenated_datasets
-BA_ZHAW/data/embeddings
-BA_ZHAW/data/physicoProperties
-BA_ZHAW/data/plain_data
-BA_ZHAW/data/plain_datasets
-BA_ZHAW/data/splitted_datasets
-BA_ZHAW/models
+BA-Transformer/data/cleaned_datasets
+BA-Transformer/data/concatenated_datasets
+BA-Transformer/data/embeddings
+BA-Transformer/data/physicoProperties
+BA-Transformer/data/plain_data
+BA-Transformer/data/plain_datasets
+BA-Transformer/data/splitted_datasets
+BA-Transformer/models
 GNN
 
 
