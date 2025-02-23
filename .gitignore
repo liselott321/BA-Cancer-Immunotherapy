@@ -1,4 +1,4 @@
-BA_ZHAW/Anaconda3-2023.07-2-Linux-x86_64.sh
+BA-Transformer/Anaconda3-2023.07-2-Linux-x86_64.sh
 data_10x
 
 GNN/models/IEDB/IEDB_embeddings.pkl
@@ -14,26 +14,26 @@ GNN/models/*.pkl
 *.csv
 
 
-BA_ZHAW/data/cleaned_datasets
-BA_ZHAW/data/concatenated_datasets
-BA_ZHAW/data/embeddings
-BA_ZHAW/data/physicoProperties
-BA_ZHAW/data/plain_data
-BA_ZHAW/data/plain_datasets
-BA_ZHAW/data/splitted_datasets
+BA-Transformer/data/cleaned_datasets
+BA-Transformer/data/concatenated_datasets
+BA-Transformer/data/embeddings
+BA-Transformer/data/physicoProperties
+BA-Transformer/data/plain_data
+BA-Transformer/data/plain_datasets
+BA-Transformer/data/splitted_datasets
 GNN
 
 
 
 # Ignore Python tarball
-BA_ZHAW/Python-3.11.4.tgz
+BA-Transformer/Python-3.11.4.tgz
 
 # Ignore extracted Python directory
-BA_ZHAW/Python-3.11.4/
+BA-Transformer/Python-3.11.4/
 
 # Ignore requirement files
-BA_ZHAW/requirements_server1.txt
-BA_ZHAW/requirements_server1_clean.txt
+BA-Transformer/requirements_server1.txt
+BA-Transformer/requirements_server1_clean.txt
 
 
 
