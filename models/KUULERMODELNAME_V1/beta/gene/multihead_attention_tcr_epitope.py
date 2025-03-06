@@ -95,7 +95,7 @@ pair_path = os.path.expanduser("~/data/concatenated_datasets/gene/beta_concatena
 # Laden der TCR- & Epitope-Embeddings
 tcr_embeddings = load_embeddings(tcr_embedding_path)
 epitope_embeddings = load_embeddings(epitope_embedding_path)
-tcr_epitope_pairs_df = pd.read_csv(pair_path, sep="\t") # Mal ohne Labels
+tcr_epitope_pairs_df = pd.read_csv(pair_path, sep="\t", dtype=str)
 tcr_epitope_pairs = list(zip(tcr_epitope_pairs_df["TRB_CDR3"], tcr_epitope_pairs_df["Epitope"]))
 
 print("Anzahl TCR-Embeddings:", len(tcr_embeddings))
@@ -104,7 +104,7 @@ print("Anzahl TCR-Epitope-Paare:", len(tcr_epitope_pairs))
 
 # Dataset & DataLoader für Batch-Verarbeitung
 batch_size = 64
-dataset = TCREpitopeDataset(tcr_embeddings, epitope_embeddings)
+dataset = TCREpitopeDataset(tcr_embeddings, epitope_embeddings, tcr_epitope_pairs)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, pin_memory=True)  # Fix zu GPU-Zugriff
 
 # Initialisiere Multi-Head Attention
