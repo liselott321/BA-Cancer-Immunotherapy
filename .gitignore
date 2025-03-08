@@ -25,6 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+# Temp embeddings for transformer rough up
+prov_emb_tcrpeg
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
