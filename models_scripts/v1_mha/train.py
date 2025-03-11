@@ -22,10 +22,10 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 
 # Load Data
-train_data = pd.read_csv('../../data/splitted_datasets/allele/beta/train.tsv', sep='\t')
-val_data = pd.read_csv('../../data/splitted_datasets/allele/beta/validation.tsv', sep='\t')
-tcr_embeddings = torch.load('../../data/embeddings/beta/allele/TRB_beta_embeddings.npz')
-epitope_embeddings = torch.load('../../data/embeddings/beta/allele/Epitope_beta_embeddings.npz')
+train_data = pd.read_csv(config['train_path'], sep='\t')
+val_data = pd.read_csv(config['valid_path'], sep='\t')
+tcr_embeddings = torch.load(config['tcr_embeddings_path'])
+epitope_embeddings = torch.load(config['epitope_embeddings_path'])
 
 train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
 val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
@@ -79,7 +79,7 @@ for epoch in range(config['epochs']):
 
 # Save best model
 if best_model_state:
-    os.makedirs("results/trained_models", exist_ok=True)
+    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, config['model_path'])
     print("Best model saved with AUC:", best_auc)
 
