@@ -6,11 +6,11 @@ num_heads: 8
 num_layers: 2
 max_tcr_length: 30
 max_epitope_length: 30
-model_path: "results/trained_models/best_baseline_model.pth"
+model_path: "results/trained_models/v1_mha.pth"
 data_paths:
-  train: "data/splitted_datasets/train.csv"
-  val: "data/splitted_datasets/val.csv"
-  test: "data/splitted_datasets/test.csv"
+  train: "../../data/splitted_datasets/allele/beta/train.tsv"
+  val: "../../data/splitted_datasets/allele/beta/validation.tsv"
+  test: "../../data/splitted_datasets/allele/beta/test.tsv"
 embeddings:
-  tcr: "data/embeddings/tcr_embeddings.pt"
-  epitope: "data/embeddings/epitope_embeddings.pt"
+  tcr: "../../data/embeddings/beta/allele/TRB_beta_embeddings.npz"
+  epitope: "../../data/embeddings/beta/allele/Epitope_beta_embeddings.npz"
