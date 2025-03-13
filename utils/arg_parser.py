@@ -4,7 +4,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Argument parser for TCR-Epitope prediction model")
     
     # Paths
-    parser.add_argument('--configs_path', type=str, default='/configs/v1_mha_config.yaml', help='Path to configuration file')
+    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_config.yaml', help='Path to configuration file')
+    parser.add_argument('--train', type=str, help='Path to training dataset')
+    parser.add_argument('--val', type=str, help='Path to validation dataset')
+    parser.add_argument('--tcr_embeddings', type=str, help='Path to TCR embeddings')
+    parser.add_argument('--epitope_embeddings', type=str, help='Path to Epitope embeddings')
+
     
     # Training Parameters
     parser.add_argument('--epochs', type=int, help='Number of training epochs')
