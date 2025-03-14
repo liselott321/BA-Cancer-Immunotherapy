@@ -11,10 +11,8 @@ import yaml
 from sklearn.metrics import roc_auc_score
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-# for use with subsets
-from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset
-# # for use with padded embedding batches
-# from models.morning_stars_v1.beta.v1_mha_batches import TCR_Epitope_Transformer, TCR_Epitope_Dataset
+# for use with padded embedding batches
+from models.morning_stars_v1.beta.v1_mha_batches import TCR_Epitope_Transformer, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -47,19 +45,26 @@ epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings els
 
 # print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
 
+
+# Define batch file paths
+tcr_batch_files = sorted([f"../../data/embeddings/beta/gene/prov/{file}" for file in os.listdir("../../data/embeddings/beta/gene/prov/") if "tcr_embeddings_batch" in file])
+epitope_batch_files = sorted([f"../../data/embeddings/beta/gene/prov/{file}" for file in os.listdir("../../data/embeddings/beta/gene/prov/") if "epitope_embeddings_batch" in file])
+
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
 
-# use this for dummy embeddings
-tcr_embeddings = np.load(tcr_embeddings_path)
-epitope_embeddings = np.load(epitope_embeddings_path)
-
-train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
-val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
+train_dataset = TCR_Epitope_Dataset(train_data, tcr_batch_files, epitope_batch_files)
+val_dataset = TCR_Epitope_Dataset(val_data, tcr_batch_files, epitope_batch_files)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+###### this lines must be removed (??)
+# # use toch.load when NOT working with dummy embeddings data, which is npy
+# tcr_embeddings = torch.load(tcr_embeddings_path)
+# epitope_embeddings = torch.load(epitope_embeddings_path)
+###### ---------------
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

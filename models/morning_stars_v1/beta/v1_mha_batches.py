@@ -91,11 +91,10 @@ class TCR_Epitope_Transformer(nn.Module):
         for layer in self.transformer_layers:
             combined = layer(combined)
 
-        # pooled = combined.mean(dim=0)
-        # pooled = combined.mean(dim=1)
-        # output = torch.sigmoid(self.output_layer(pooled))  
+        # pooled = combined[:, 0, :]  # Take the first token (or use other aggregation)
+        # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)  # Ensure shape is (batch_size)
 
-        pooled = combined[:, 0, :]  # Take the first token (or use other aggregation)
-        output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)  # Ensure shape is (batch_size)
+        pooled = combined.mean(dim=1)  # Average across all tokens, shape: (B, D)
+        output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
 
         return output
