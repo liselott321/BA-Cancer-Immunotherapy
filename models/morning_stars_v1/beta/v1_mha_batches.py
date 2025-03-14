@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import pandas as pd
 
 class AttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout=0.1):
@@ -16,19 +18,47 @@ class AttentionBlock(nn.Module):
 
 
 class TCR_Epitope_Dataset(Dataset):
-    def __init__(self, data, tcr_embeddings, epitope_embeddings):
+    def __init__(self, data, tcr_batch_files, epitope_batch_files):
         self.data = data
-        self.tcr_embeddings = tcr_embeddings
-        self.epitope_embeddings = epitope_embeddings
+        
+        # Store batch file paths
+        self.tcr_batch_files = tcr_batch_files
+        self.epitope_batch_files = epitope_batch_files
+
+        # Map each TCR to its batch file
+        self.tcr_batch_map = self._create_batch_map(self.tcr_batch_files, "tcr")
+        self.epitope_batch_map = self._create_batch_map(self.epitope_batch_files, "epitope")
+
+    def _create_batch_map(self, batch_files, prefix):
+        """Create a mapping from sample names to batch file paths."""
+        mapping = {}
+        for batch_file in batch_files:
+            batch_data = np.load(batch_file, mmap_mode="r")  # Load metadata without full load
+            for key in batch_data.files:
+                mapping[key] = batch_file  # Store batch file location
+        return mapping
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        tcr_embedding = torch.tensor(self.tcr_embeddings[row['TRB_CDR3']], dtype=torch.float32)
-        epitope_embedding = torch.tensor(self.epitope_embeddings[row['Epitope']], dtype=torch.float32)
-        label = torch.tensor(row['Binding'], dtype=torch.float32)  
+        tcr_id = row['TRB_CDR3']
+        epitope_id = row['Epitope']
+        
+        # Load TCR embedding dynamically
+        tcr_batch_file = self.tcr_batch_map[tcr_id]
+        tcr_batch_data = np.load(tcr_batch_file, mmap_mode="r")
+        tcr_embedding = torch.tensor(tcr_batch_data[tcr_id], dtype=torch.float32)
+
+        # Load Epitope embedding dynamically
+        epitope_batch_file = self.epitope_batch_map[epitope_id]
+        epitope_batch_data = np.load(epitope_batch_file, mmap_mode="r")
+        epitope_embedding = torch.tensor(epitope_batch_data[epitope_id], dtype=torch.float32)
+
+        # Load label
+        label = torch.tensor(row['Binding'], dtype=torch.float32)
+        
         return tcr_embedding, epitope_embedding, label
 
 
