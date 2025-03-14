@@ -9,6 +9,7 @@ import os
 import sys
 import yaml
 from sklearn.metrics import roc_auc_score
+from tqdm import tqdm  # Import tqdm for progress bars
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with padded embedding batches
@@ -34,14 +35,18 @@ print(f'Learning rate: {learning_rate}')
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
+# path to save best model
+model_path = args.model_path if args.model_path else config['model_path']
+
+
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-# will not be used:
-tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
+# # will not be used: (can be removed?)
+# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
+# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
 # print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
 
@@ -57,10 +62,19 @@ val_data = pd.read_csv(val_path, sep='\t')
 train_dataset = TCR_Epitope_Dataset(train_data, tcr_batch_files, epitope_batch_files)
 val_dataset = TCR_Epitope_Dataset(val_data, tcr_batch_files, epitope_batch_files)
 
+## short check
+# for i in range(5):
+#     tcr, epitope, label = train_dataset[i]
+#     print(f"Sample {i} - TCR shape: {tcr.shape}, Epitope shape: {epitope.shape}, Label: {label}")
+# for i in range(5):
+#     tcr, epitope, label = val_dataset[i]
+#     print(f"Sample {i} - TCR shape: {tcr.shape}, Epitope shape: {epitope.shape}, Label: {label}")
+
+
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-###### this lines must be removed (??)
+###### this lines can be removed (??)
 # # use toch.load when NOT working with dummy embeddings data, which is npy
 # tcr_embeddings = torch.load(tcr_embeddings_path)
 # epitope_embeddings = torch.load(epitope_embeddings_path)
@@ -84,10 +98,12 @@ best_model_state = None
 
 # Training Loop
 for epoch in range(epochs):
+    print(f"Starting epoch {epoch}")
     model.train()
     epoch_loss = 0
     
-    for tcr, epitope, label in train_loader:
+    # Add tqdm progress bar for train_loader
+    for tcr, epitope, label in tqdm(train_loader, desc=f"Training Epoch {epoch}", unit="batch"):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
         output = model(tcr, epitope)  # ✅ Works regardless of shape
@@ -96,13 +112,18 @@ for epoch in range(epochs):
         optimizer.step()
         epoch_loss += loss.item()
     
+    print(f"Epoch {epoch} Training Loss: {epoch_loss / len(train_loader)}")
+    
     # Validation
+    print(f"Starting validation of epoch {epoch}")
     model.eval()
     all_labels = []
     all_outputs = []
     all_preds = []
+    
+    # Add tqdm progress bar for val_loader
     with torch.no_grad():
-        for tcr, epitope, label in val_loader:
+        for tcr, epitope, label in tqdm(val_loader, desc=f"Validation Epoch {epoch}", unit="batch"):
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)  # ✅ Works regardless of shape
             preds = torch.sigmoid(output)  # Convert logits to probabilities
@@ -123,6 +144,5 @@ for epoch in range(epochs):
 # Save best model
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
-    torch.save(best_model_state, config['model_path'])
+    torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
-

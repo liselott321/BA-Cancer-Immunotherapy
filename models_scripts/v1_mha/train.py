@@ -41,7 +41,10 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-# will not be used:
+# path to save best model
+model_path = args.model_path if args.model_path else config['model_path']
+
+# embeddings
 tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
 epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
@@ -118,6 +121,6 @@ for epoch in range(epochs):
 # Save best model
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
-    torch.save(best_model_state, config['model_path'])
+    torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
 

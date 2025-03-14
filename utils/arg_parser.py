@@ -9,6 +9,7 @@ def parse_args():
     parser.add_argument('--val', type=str, help='Path to validation dataset')
     parser.add_argument('--tcr_embeddings', type=str, help='Path to TCR embeddings')
     parser.add_argument('--epitope_embeddings', type=str, help='Path to Epitope embeddings')
+    parser.add_argument('--model_path', type=str, help='Path to save best model')
 
     
     # Training Parameters
