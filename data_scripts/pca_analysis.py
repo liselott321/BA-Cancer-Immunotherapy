@@ -1,26 +1,41 @@
 import pandas as pd
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+import numpy as np
 
-def perform_pca(data, features, n_components=2):
-    # Ensure the columns exist
-    for feature in features:
-        if feature not in data.columns:
-            raise ValueError(f"Column '{feature}' must exist in the dataset")
+def perform_pca_on_embeddings(embeddings_generator, n_components=512):
+    """
+    Perform standard PCA to reduce feature dimensions from 1024 to 512.
+    """
+    print("Lade und puffer alle Batches...")
+    all_batches = []
+    batch_count = 0
 
-    # Prepare data for PCA
-    x = data.loc[:, features].values
-    x = StandardScaler().fit_transform(x)
+    for batch in embeddings_generator:
+        batch = np.array(batch)
+        all_batches.append(batch)
+        print(f"Batch {batch_count} geladen mit Shape: {batch.shape}")
+        batch_count += 1
 
-    # Perform PCA
+    if not all_batches:
+        raise ValueError("Keine ausreichenden Daten für PCA gefunden!")
+
+    # Alle Daten zusammenfügen
+    data = np.vstack(all_batches)
+    print(f"Gesamte Datenform vor PCA: {data.shape}")
+
+    # Standard PCA durchführen
     pca = PCA(n_components=n_components)
-    principal_components = pca.fit_transform(x)
-    principal_df = pd.DataFrame(data=principal_components, columns=[f'principal_component_{i+1}' for i in range(n_components)])
+    reduced_data = pca.fit_transform(data)
+    print(f"Gesamte Datenform nach PCA: {reduced_data.shape}")
 
-    # Combine with original data
-    final_df = pd.concat([data, principal_df], axis=1)
+    # Erklärte Varianz ausgeben
+    print(f"Erklärte Varianz pro Komponente: {pca.explained_variance_ratio_}")
+    print(f"Gesamte erklärte Varianz: {pca.explained_variance_ratio_.sum()}")
 
-    # Display the explained variance ratio
-    print(f"Explained variance ratio: {pca.explained_variance_ratio_}")
+    # Ergebnisse als DataFrame zurückgeben
+    principal_df = pd.DataFrame(
+        reduced_data,
+        columns=[f'principal_component_{i+1}' for i in range(n_components)]
+    )
 
-    return final_df
+    return principal_df
