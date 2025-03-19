@@ -12,5 +12,5 @@ data_paths:
   val: "../../data/splitted_datasets/allele/beta/validation.tsv"
   test: "../../data/splitted_datasets/allele/beta/test.tsv"
 embeddings:
-  tcr: "../../data/embeddings/beta/allele/TRB_beta_embeddings.npz"
-  epitope: "../../data/embeddings/beta/allele/Epitope_beta_embeddings.npz"
+  tcr: "../../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
+  epitope: "../../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"

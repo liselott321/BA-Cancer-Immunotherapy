@@ -9,6 +9,8 @@ import os
 import sys
 import yaml
 from sklearn.metrics import roc_auc_score
+import h5py
+from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
@@ -54,9 +56,24 @@ epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings els
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
 
-# use this for dummy embeddings
-tcr_embeddings = np.load(tcr_embeddings_path)
-epitope_embeddings = np.load(epitope_embeddings_path)
+## for embeddings in .npz file
+# tcr_embeddings = np.load(tcr_embeddings_path)
+# epitope_embeddings = np.load(epitope_embeddings_path)
+
+# for embeddings in .h5 files
+# Function to load all datasets from an HDF5 file
+def load_h5_embeddings(file_path):
+    embeddings_dict = {}
+    with h5py.File(file_path, 'r') as f:
+        for key in f.keys():  # Iterate over all keys
+            embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
+    return embeddings_dict
+
+# Load TCR and Epitope embeddings
+print('Loading tcr_embeddings...')
+tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
+print('Loading epitope_embeddings...')
+epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
 
 train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
 val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
@@ -80,35 +97,47 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 best_auc = 0.0
 best_model_state = None
 
+
 # Training Loop
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
     
-    for tcr, epitope, label in train_loader:
+    # Add progress bar for training
+    train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
+
+    for tcr, epitope, label in train_loader_tqdm:
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope)  # ✅ Works regardless of shape
+        output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
-    
+        
+        # Update progress bar description with loss
+        train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
+
     # Validation
     model.eval()
     all_labels = []
     all_outputs = []
     all_preds = []
+    
+    # Add progress bar for validation
+    val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
+
     with torch.no_grad():
-        for tcr, epitope, label in val_loader:
+        for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-            output = model(tcr, epitope)  # ✅ Works regardless of shape
-            preds = torch.sigmoid(output)  # Convert logits to probabilities
-            preds = (preds > 0.5).float()  # Convert probabilities to binary predictions
+            output = model(tcr, epitope)  
+            preds = torch.sigmoid(output)  
+            preds = (preds > 0.5).float()  
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(output.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
-    
+
+
     auc = roc_auc_score(all_labels, all_outputs)
     accuracy = (np.array(all_preds) == np.array(all_labels)).mean()  # Calculate accuracy
     print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}")
