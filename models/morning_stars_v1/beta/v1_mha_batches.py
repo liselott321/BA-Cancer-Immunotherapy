@@ -65,9 +65,9 @@ class TCR_Epitope_Dataset(Dataset):
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_tcr_length, max_epitope_length, dropout=0.1):
         super(TCR_Epitope_Transformer, self).__init__()
-        self.tcr_embedding = nn.Linear(1024, embed_dim)
+        self.tcr_embedding = nn.Linear(512, embed_dim)
         # print('embed_dim: ', embed_dim)
-        self.epitope_embedding = nn.Linear(1024, embed_dim)
+        self.epitope_embedding = nn.Linear(512, embed_dim)
         
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         # print('max_tcr_length: ',max_tcr_length)
