@@ -52,8 +52,8 @@ print(f"val_path: {val_path}")
 
 
 # Define batch file paths
-tcr_batch_files = sorted([f"../../data/embeddings/beta/gene/prov/{file}" for file in os.listdir("../../data/embeddings/beta/gene/prov/") if "tcr_embeddings_batch" in file])
-epitope_batch_files = sorted([f"../../data/embeddings/beta/gene/prov/{file}" for file in os.listdir("../../data/embeddings/beta/gene/prov/") if "epitope_embeddings_batch" in file])
+tcr_batch_files = sorted([f"../../data/embeddings/beta/allele/padded/tcr_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/tcr_padded_batches/") if "batch_" in file])
+epitope_batch_files = sorted([f"../../data/embeddings/beta/allele/padded/epitope_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/epitope_padded_batches/") if "batch_" in file])
 
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
