@@ -129,6 +129,7 @@ for epoch in range(epochs):
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
+            # output = torch.sigmoid(output)  # Apply sigmoid here
             preds = (torch.sigmoid(output) > 0.5).float()
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(output.cpu().numpy())
