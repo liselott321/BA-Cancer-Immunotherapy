@@ -50,31 +50,75 @@ model_path = args.model_path if args.model_path else config['model_path']
 tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
 epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
+# Embeddings paths from config/args
+tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
+epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
+tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
+epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
+
+
 # print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
 
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
 
-## for embeddings in .npz file
-# tcr_embeddings = np.load(tcr_embeddings_path)
-# epitope_embeddings = np.load(epitope_embeddings_path)
+# for embeddings in .npz file
+tcr_embeddings = np.load(tcr_embeddings_path)
+epitope_embeddings = np.load(epitope_embeddings_path)
 
-# for embeddings in .h5 files
-# Function to load all datasets from an HDF5 file
-def load_h5_embeddings(file_path):
-    embeddings_dict = {}
-    with h5py.File(file_path, 'r') as f:
-        for key in f.keys():  # Iterate over all keys
-            embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
-    return embeddings_dict
+# # for embeddings in .h5 files
+# # Function to load all datasets from an HDF5 file
+# def load_h5_embeddings(file_path):
+#     embeddings_dict = {}
+#     with h5py.File(file_path, 'r') as f:
+#         for key in f.keys():  # Iterate over all keys
+#             embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
+#     return embeddings_dict
 
-# Load TCR and Epitope embeddings
-print('Loading tcr_embeddings...')
-tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
-print('Loading epitope_embeddings...')
-epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
+# # Load TCR and Epitope embeddings
+# print('Loading tcr_embeddings...')
+# tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
+# print('Loading epitope_embeddings...')
+# epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
 
+# def load_npz_embeddings(file_paths):
+#     embeddings = {}
+#     for file_path in file_paths:
+#         with np.load(file_path) as data:
+#             for key in data.files:
+#                 embeddings[key] = data[key]
+#     return embeddings
+
+# # Load embeddings
+# print(f'Loading training TCR embeddings from {tcr_train_path}')
+# tcr_train_paths = sorted([f"{tcr_train_path}{file}" for file in os.listdir(f"{tcr_train_path}") if "batch_" in file])
+# tcr_train_embeddings = load_npz_embeddings(tcr_train_paths)
+# print(f'Loading training Epitope embeddings from {epitope_train_path}')
+# epitope_train_paths = sorted([f"{epitope_train_path}{file}" for file in os.listdir(f"{epitope_train_path}") if "batch_" in file])
+# epitope_train_embeddings = load_npz_embeddings(epitope_train_paths)
+# print(f'Loading validation TCR embeddings from {tcr_valid_path}')
+# tcr_valid_paths = sorted([f"{tcr_valid_path}{file}" for file in os.listdir(f"{tcr_valid_path}") if "batch_" in file])
+# tcr_valid_embeddings = load_npz_embeddings(tcr_valid_paths)
+# print(f'Loading validation Epitope embeddings from {epitope_valid_path}')
+# epitope_valid_paths = sorted([f"{epitope_valid_path}{file}" for file in os.listdir(f"{epitope_valid_path}") if "batch_" in file])
+# epitope_valid_embeddings = load_npz_embeddings(epitope_valid_paths)
+
+# Load the embeddings
+# subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
+
+
+# print('Loading embeddings...')
+# tcr_train_embeddings = np.load(tcr_train_path)
+# epitope_train_embeddings = np.load(epitope_train_path)
+# tcr_valid_embeddings = np.load(tcr_valid_path)
+# epitope_valid_embeddings = np.load(epitope_valid_path)
+
+# # Create datasets and dataloaders (when train and validation embeddings separately)
+# train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+# val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+
+# Create datasets and dataloaders 
 train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
 val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
 

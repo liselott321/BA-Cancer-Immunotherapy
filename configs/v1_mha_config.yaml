@@ -14,3 +14,7 @@ data_paths:
 embeddings:
   tcr: "../../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
   epitope: "../../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"
+  tcr_train: "../../data/embeddings/beta/allele/padded_pca/tcr_padded_batches_train/"
+  epitope_train: "../../data/embeddings/beta/allele/padded_pca/epitope_padded_batches_train/"
+  tcr_valid: "../../data/embeddings/beta/allele/padded_pca/valid_tcr_padded_batches/"
+  epitope_valid: "../../data/embeddings/beta/allele/padded_pca/valid_epitope_padded_batches/"

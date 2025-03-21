@@ -10,6 +10,10 @@ def parse_args():
     parser.add_argument('--tcr_embeddings', type=str, help='Path to TCR embeddings')
     parser.add_argument('--epitope_embeddings', type=str, help='Path to Epitope embeddings')
     parser.add_argument('--model_path', type=str, help='Path to save best model')
+    parser.add_argument('--tcr_train_embeddings', type=str, help='Path to train TCR embeddings')
+    parser.add_argument('--epitope_train_embeddings', type=str, help='Path to train Epitope embeddings')
+    parser.add_argument('--tcr_valid_embeddings', type=str, help='Path to valid TCR embeddings')
+    parser.add_argument('--epitope_valid_embeddings', type=str, help='Path to valid Epitope embeddings')
 
     
     # Training Parameters

@@ -5,6 +5,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import pandas as pd
 import numpy as np
+import h5py
 import os
 import sys
 import yaml
@@ -44,41 +45,48 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-# # will not be used: (can be removed?)
-# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
+# # Define batch file paths  ## old way
+# tcr_batch_files = sorted([f"../../data/embeddings/beta/allele/padded_pca/tcr_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/tcr_padded_batches/") if "batch_" in file])
+# epitope_batch_files = sorted([f"../../data/embeddings/beta/allele/padded_pca/epitope_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/epitope_padded_batches/") if "batch_" in file])
 
-# print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
-
-
-# Define batch file paths
-tcr_batch_files = sorted([f"../../data/embeddings/beta/allele/padded/tcr_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/tcr_padded_batches/") if "batch_" in file])
-epitope_batch_files = sorted([f"../../data/embeddings/beta/allele/padded/epitope_padded_batches/{file}" for file in os.listdir("../../data/embeddings/beta/allele/padded/epitope_padded_batches/") if "batch_" in file])
+# Embeddings paths from config/args
+tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
+epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
+tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
+epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
 
-train_dataset = TCR_Epitope_Dataset(train_data, tcr_batch_files, epitope_batch_files)
-val_dataset = TCR_Epitope_Dataset(val_data, tcr_batch_files, epitope_batch_files)
+def load_npz_embeddings(file_paths):
+    embeddings = {}
+    for file_path in file_paths:
+        with np.load(file_path) as data:
+            for key in data.files:
+                embeddings[key] = data[key]
+    return embeddings
 
-## short check
-# for i in range(5):
-#     tcr, epitope, label = train_dataset[i]
-#     print(f"Sample {i} - TCR shape: {tcr.shape}, Epitope shape: {epitope.shape}, Label: {label}")
-# for i in range(5):
-#     tcr, epitope, label = val_dataset[i]
-#     print(f"Sample {i} - TCR shape: {tcr.shape}, Epitope shape: {epitope.shape}, Label: {label}")
+# Load embeddings
+print(f'Loading training TCR embeddings from {tcr_train_path}')
+tcr_train_paths = sorted([f"{tcr_train_path}{file}" for file in os.listdir(f"{tcr_train_path}") if "batch_" in file])
+tcr_train_embeddings = load_npz_embeddings(tcr_train_paths)
+print(f'Loading training Epitope embeddings from {epitope_train_path}')
+epitope_train_paths = sorted([f"{epitope_train_path}{file}" for file in os.listdir(f"{epitope_train_path}") if "batch_" in file])
+epitope_train_embeddings = load_npz_embeddings(epitope_train_paths)
+print(f'Loading validation TCR embeddings from {tcr_valid_path}')
+tcr_valid_paths = sorted([f"{tcr_valid_path}{file}" for file in os.listdir(f"{tcr_valid_path}") if "batch_" in file])
+tcr_valid_embeddings = load_npz_embeddings(tcr_valid_paths)
+print(f'Loading validation Epitope embeddings from {epitope_valid_path}')
+epitope_valid_paths = sorted([f"{epitope_valid_path}{file}" for file in os.listdir(f"{epitope_valid_path}") if "batch_" in file])
+epitope_valid_embeddings = load_npz_embeddings(epitope_valid_paths)
 
+# Create datasets and dataloaders
+train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-###### this lines can be removed (??)
-# # use toch.load when NOT working with dummy embeddings data, which is npy
-# tcr_embeddings = torch.load(tcr_embeddings_path)
-# epitope_embeddings = torch.load(epitope_embeddings_path)
-###### ---------------
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -98,51 +106,45 @@ best_model_state = None
 
 # Training Loop
 for epoch in range(epochs):
-    print(f"Starting epoch {epoch}")
     model.train()
     epoch_loss = 0
-    
-    # Add tqdm progress bar for train_loader
-    for tcr, epitope, label in tqdm(train_loader, desc=f"Training Epoch {epoch}", unit="batch"):
+    train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
+
+    for tcr, epitope, label in train_loader_tqdm:
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope)  # ✅ Works regardless of shape
+        output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
-    
-    print(f"Epoch {epoch} Training Loss: {epoch_loss / len(train_loader)}")
-    
+        train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
+
     # Validation
-    print(f"Starting validation of epoch {epoch}")
     model.eval()
-    all_labels = []
-    all_outputs = []
-    all_preds = []
-    
-    # Add tqdm progress bar for val_loader
+    all_labels, all_outputs, all_preds = [], [], []
+    val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
+
     with torch.no_grad():
-        for tcr, epitope, label in tqdm(val_loader, desc=f"Validation Epoch {epoch}", unit="batch"):
+        for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-            output = model(tcr, epitope)  # ✅ Works regardless of shape
-            preds = torch.sigmoid(output)  # Convert logits to probabilities
-            preds = (preds > 0.5).float()  # Convert probabilities to binary predictions
+            output = model(tcr, epitope)
+            # output = torch.sigmoid(output)  # Apply sigmoid here
+            preds = (torch.sigmoid(output) > 0.5).float()
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(output.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
-    
+
     auc = roc_auc_score(all_labels, all_outputs)
-    accuracy = (np.array(all_preds) == np.array(all_labels)).mean()  # Calculate accuracy
+    accuracy = (np.array(all_preds) == np.array(all_labels)).mean()
     print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}")
     
-    # Save best model
     if auc > best_auc:
         best_auc = auc
         best_model_state = model.state_dict()
 
-# Save best model
 if best_model_state:
-    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
+
