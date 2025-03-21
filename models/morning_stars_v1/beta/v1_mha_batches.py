@@ -115,6 +115,7 @@ class TCR_Epitope_Transformer(nn.Module):
         # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)  # Ensure shape is (batch_size)
 
         pooled = combined.mean(dim=1)  # Average across all tokens, shape: (B, D)
-        output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
-
+        # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
+        output = self.output_layer(pooled).squeeze(1)
+        
         return output
