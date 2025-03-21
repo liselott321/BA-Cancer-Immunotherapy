@@ -57,15 +57,14 @@ class TCR_Epitope_Transformer(nn.Module):
         # combined = torch.cat((tcr.unsqueeze(0), epitope.unsqueeze(0)), dim=0)
         combined = torch.cat((tcr, epitope), dim=1)  # Concatenating along sequence length
   
-
         for layer in self.transformer_layers:
             combined = layer(combined)
-
-        # is this mean better?
+        
         pooled = combined.mean(dim=1)  # Average across all tokens, shape: (B, D)
-        output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
+
+        # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
+        output = self.output_layer(pooled).squeeze(1)
 
         # pooled = combined[:, 0, :]  # Take the first token (or use other aggregation)
-        # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)  # Ensure shape is (batch_size)
-
+    
         return output

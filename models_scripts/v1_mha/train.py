@@ -63,9 +63,9 @@ epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddi
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
 
-# for embeddings in .npz file
-tcr_embeddings = np.load(tcr_embeddings_path)
-epitope_embeddings = np.load(epitope_embeddings_path)
+# # for embeddings in .npz file
+# tcr_embeddings = np.load(tcr_embeddings_path)
+# epitope_embeddings = np.load(epitope_embeddings_path)
 
 # # for embeddings in .h5 files
 # # Function to load all datasets from an HDF5 file
@@ -108,19 +108,23 @@ epitope_embeddings = np.load(epitope_embeddings_path)
 # subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
 
 
-# print('Loading embeddings...')
-# tcr_train_embeddings = np.load(tcr_train_path)
-# epitope_train_embeddings = np.load(epitope_train_path)
-# tcr_valid_embeddings = np.load(tcr_valid_path)
-# epitope_valid_embeddings = np.load(epitope_valid_path)
+print('Loading embeddings...')
+print("tcr_train ", tcr_train_path)
+tcr_train_embeddings = np.load(tcr_train_path)
+print("epi_train ", epitope_train_path)
+epitope_train_embeddings = np.load(epitope_train_path)
+print("tcr_valid ", tcr_valid_path)
+tcr_valid_embeddings = np.load(tcr_valid_path)
+print("epi_valid ", epitope_valid_path)
+epitope_valid_embeddings = np.load(epitope_valid_path)
 
-# # Create datasets and dataloaders (when train and validation embeddings separately)
-# train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-# val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+# Create datasets and dataloaders (when train and validation embeddings separately)
+train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-# Create datasets and dataloaders 
-train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
-val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
+# # Create datasets and dataloaders 
+# train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
+# val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -180,6 +184,10 @@ for epoch in range(epochs):
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(output.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
+            # if epoch == 0:
+            #     print(type(all_labels), len(all_labels))
+            #     print(type(all_outputs), len(all_outputs))
+            #     print(type(all_preds), len(all_preds))
 
 
     auc = roc_auc_score(all_labels, all_outputs)
@@ -196,4 +204,5 @@ if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
+
 
