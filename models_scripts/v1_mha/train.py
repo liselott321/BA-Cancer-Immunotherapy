@@ -15,7 +15,7 @@ import h5py
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -38,8 +38,6 @@ train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
-test_path = args.test if args.test else config['data_paths']['test']
-print(f"test_path: {test_path}")
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -53,28 +51,10 @@ tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else con
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
-tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else embeddings_config['tcr_test']
-epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else embeddings_config['epitope_test']
-
-
-# print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
 
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
-test_data = pd.read_csv(test_path, sep='\t')
-# # for embeddings in .npz file
-# tcr_embeddings = np.load(tcr_embeddings_path)
-# epitope_embeddings = np.load(epitope_embeddings_path)
-
-# # for embeddings in .h5 files
-# # Function to load all datasets from an HDF5 file
-# def load_h5_embeddings(file_path):
-#     embeddings_dict = {}
-#     with h5py.File(file_path, 'r') as f:
-#         for key in f.keys():  # Iterate over all keys
-#             embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
-#     return embeddings_dict
 
 # # Load TCR and Epitope embeddings
 # print('Loading tcr_embeddings...')
@@ -108,24 +88,45 @@ test_data = pd.read_csv(test_path, sep='\t')
 # subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
 
 
+# HDF5 Lazy Loading for embeddings
+def load_h5_lazy(file_path):
+    """Lazy load HDF5 file and return a reference to the file."""
+    return h5py.File(file_path, 'r')
+
+
 print('Loading embeddings...')
 print("tcr_train ", tcr_train_path)
-tcr_train_embeddings = np.load(tcr_train_path)
+tcr_train_embeddings = load_h5_lazy(tcr_train_path)
 print("epi_train ", epitope_train_path)
-epitope_train_embeddings = np.load(epitope_train_path)
+epitope_train_embeddings = load_h5_lazy(epitope_train_path)
 print("tcr_valid ", tcr_valid_path)
-tcr_valid_embeddings = np.load(tcr_valid_path)
+tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
-epitope_valid_embeddings = np.load(epitope_valid_path)
-print("tcr_test ", tcr_test_path)
-tcr_test_embeddings = np.load(tcr_test_path)
-print("epi_test ", epitope_test_path)
-epitope_test_embeddings = np.load(epitope_test_path)
+epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-# Create datasets and dataloaders (when train and validation embeddings separately)
-train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
-test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
+
+# print('Loading embeddings...')
+# print("tcr_train ", tcr_train_path)
+# tcr_train_embeddings = np.load(tcr_train_path)
+# print("epi_train ", epitope_train_path)
+# epitope_train_embeddings = np.load(epitope_train_path)
+# print("tcr_valid ", tcr_valid_path)
+# tcr_valid_embeddings = np.load(tcr_valid_path)
+# print("epi_valid ", epitope_valid_path)
+# epitope_valid_embeddings = np.load(epitope_valid_path)
+# print("tcr_test ", tcr_test_path)
+# tcr_test_embeddings = np.load(tcr_test_path)
+# print("epi_test ", epitope_test_path)
+# epitope_test_embeddings = np.load(epitope_test_path)
+
+# # Create datasets and dataloaders (when train and validation embeddings separately)
+# train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+# val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+
+# Create datasets and dataloaders (lazy loading)
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+
 
 # # Create datasets and dataloaders 
 # train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
@@ -134,7 +135,6 @@ test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -216,40 +216,3 @@ if best_model_state:
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
 
-
-# Test Block
-print("\nStarting testing phase...")
-model.load_state_dict(torch.load(model_path))
-model.eval()
-
-all_labels = []
-all_outputs = []
-all_preds = []
-
-with torch.no_grad():
-    for tcr, epitope, label in tqdm(test_loader, desc="Testing"):
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-        output = model(tcr, epitope)
-
-        # Convert logits to probabilities and predictions
-        probs = torch.sigmoid(output)
-        preds = (probs > 0.5).float()
-
-        all_labels.extend(label.cpu().numpy())
-        all_outputs.extend(probs.cpu().numpy())
-        all_preds.extend(preds.cpu().numpy())
-
-# Convert to NumPy arrays for metric calculations
-all_labels = np.array(all_labels)
-all_preds = np.array(all_preds)
-all_outputs = np.array(all_outputs)
-
-# Metrics
-auc = roc_auc_score(all_labels, all_outputs)
-accuracy = (all_preds == all_labels).mean()
-f1 = f1_score(all_labels, all_preds)
-
-# Confusion matrix components
-tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
-
-print(f"Test Results - AUC: {auc:.4f}, Accuracy: {accuracy:.4f}, F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")

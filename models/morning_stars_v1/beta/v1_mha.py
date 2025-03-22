@@ -32,6 +32,40 @@ class TCR_Epitope_Dataset(Dataset):
         return tcr_embedding, epitope_embedding, label
 
 
+# Custom Dataset class to handle lazy-loaded embeddings
+class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
+    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings):
+        """
+        Args:
+            data_frame (DataFrame): The DataFrame containing sample data.
+            tcr_embeddings (h5py.File): HDF5 file containing TCR embeddings.
+            epitope_embeddings (h5py.File): HDF5 file containing epitope embeddings.
+        """
+        self.data_frame = data_frame
+        self.tcr_embeddings = tcr_embeddings
+        self.epitope_embeddings = epitope_embeddings
+
+    def __len__(self):
+        return len(self.data_frame)
+
+    def __getitem__(self, idx):
+        sample = self.data_frame.iloc[idx]
+        tcr_id = sample['TRB_CDR3']  # Column name for TCR IDs
+        epitope_id = sample['Epitope']  # Column name for epitope IDs
+        label = sample['Binding']  # Target label
+
+        # Access embeddings lazily
+        tcr_embedding = self.tcr_embeddings[tcr_id][:]
+        epitope_embedding = self.epitope_embeddings[epitope_id][:]
+
+        return (
+            torch.tensor(tcr_embedding, dtype=torch.float32),
+            torch.tensor(epitope_embedding, dtype=torch.float32),
+            torch.tensor(label, dtype=torch.float32),
+        )
+
+
+
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_tcr_length, max_epitope_length, dropout=0.1):
         super(TCR_Epitope_Transformer, self).__init__()
