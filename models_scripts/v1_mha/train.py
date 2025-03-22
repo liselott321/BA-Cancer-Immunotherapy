@@ -15,8 +15,7 @@ import h5py
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, 
-TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -56,19 +55,6 @@ epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddi
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
-
-# # for embeddings in .npz file
-# tcr_embeddings = np.load(tcr_embeddings_path)
-# epitope_embeddings = np.load(epitope_embeddings_path)
-
-# # for embeddings in .h5 files
-# # Function to load all datasets from an HDF5 file
-# def load_h5_embeddings(file_path):
-#     embeddings_dict = {}
-#     with h5py.File(file_path, 'r') as f:
-#         for key in f.keys():  # Iterate over all keys
-#             embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
-#     return embeddings_dict
 
 # # Load TCR and Epitope embeddings
 # print('Loading tcr_embeddings...')
