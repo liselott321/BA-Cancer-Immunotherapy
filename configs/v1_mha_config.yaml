@@ -18,3 +18,5 @@ embeddings:
   epitope_train: "../../data/embeddings/beta/allele/padded_pca/epitope_padded_batches_train/"
   tcr_valid: "../../data/embeddings/beta/allele/padded_pca/valid_tcr_padded_batches/"
   epitope_valid: "../../data/embeddings/beta/allele/padded_pca/valid_epitope_padded_batches/"
+  tcr_test: "../../data/embeddings/beta/allele/padded_pca/test_tcr_padded_batches/"
+  epitope_test: "../../data/embeddings/beta/allele/padded_pca/test_epitope_padded_batches/"
