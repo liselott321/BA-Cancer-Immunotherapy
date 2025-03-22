@@ -20,10 +20,11 @@ from tqdm import tqdm
 import pandas as pd
 import yaml
 import sys
+import h5py
 
 # Import custom modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
 
@@ -45,15 +46,33 @@ epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings
 print(f"Loading test data from: {test_path}")
 test_data = pd.read_csv(test_path, sep='\t')
 
-# Load embeddings
-print("Loading embeddings...")
-print("tcr_test ", tcr_test_path)
-tcr_test_embeddings = np.load(tcr_test_path)
-print("epi_test ", epitope_test_path)
-epitope_test_embeddings = np.load(epitope_test_path)
+# # Load embeddings
+# print("Loading embeddings...")
+# print("tcr_test ", tcr_test_path)
+# tcr_test_embeddings = np.load(tcr_test_path)
+# print("epi_test ", epitope_test_path)
+# epitope_test_embeddings = np.load(epitope_test_path)
 
-# Create test dataset and loader
-test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
+
+# HDF5 Lazy Loading for embeddings
+def load_h5_lazy(file_path):
+    """Lazy load HDF5 file and return a reference to the file."""
+    return h5py.File(file_path, 'r')
+
+
+print('Loading embeddings...')
+print("tcr_test ", tcr_test_path)
+tcr_test_embeddings = load_h5_lazy(tcr_test_path)
+print("epi_test ", epitope_test_path)
+epitope_test_embeddings = load_h5_lazy(epitope_test_path)
+
+
+# Create datasets and dataloaders (lazy loading)
+test_dataset = LazyTCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
+
+# # Create test dataset and loader
+# test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
+
 test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
 
 # Initialize device
