@@ -1,22 +1,21 @@
-
+import os
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix
+from tqdm import tqdm
+
 import pandas as pd
-import numpy as np
-import os
 import sys
 import yaml
-from sklearn.metrics import roc_auc_score
 import h5py
-from tqdm import tqdm
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
 from models.morning_stars_v1.beta.v1_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset
-# # for use with padded embedding batches
-# from models.morning_stars_v1.beta.v1_mha_batches import TCR_Epitope_Transformer, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -26,9 +25,6 @@ args = parse_args()
 # Load Configurations
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
-
-# print(args, '\n', config)
-# Override config values if CLI args are provided
 
 epochs = args.epochs if args.epochs else config['epochs']
 batch_size = args.batch_size if args.batch_size else config['batch_size']
@@ -42,19 +38,23 @@ train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
+test_path = args.test if args.test else config['data_paths']['test']
+print(f"test_path: {test_path}")
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
-# embeddings
-tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
+# # embeddings
+# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
+# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
 # Embeddings paths from config/args
 tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
+tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else embeddings_config['tcr_test']
+epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else embeddings_config['epitope_test']
 
 
 # print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
@@ -62,7 +62,7 @@ epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddi
 # Load Data
 train_data = pd.read_csv(train_path, sep='\t')
 val_data = pd.read_csv(val_path, sep='\t')
-
+test_data = pd.read_csv(test_path, sep='\t')
 # # for embeddings in .npz file
 # tcr_embeddings = np.load(tcr_embeddings_path)
 # epitope_embeddings = np.load(epitope_embeddings_path)
@@ -117,24 +117,30 @@ print("tcr_valid ", tcr_valid_path)
 tcr_valid_embeddings = np.load(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = np.load(epitope_valid_path)
+print("tcr_test ", tcr_test_path)
+tcr_test_embeddings = np.load(tcr_test_path)
+print("epi_test ", epitope_test_path)
+epitope_test_embeddings = np.load(epitope_test_path)
 
 # Create datasets and dataloaders (when train and validation embeddings separately)
 train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
 
 # # Create datasets and dataloaders 
 # train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
 # val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
 
+# Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Print device information
 print(f"Using device: {device}")
 if device.type == "cuda":
-    print(f"GPU Name: {torch.cuda.get_device_name(0)}")  # Print the name of the GPU
+    print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
 model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length']).to(device)
 
@@ -145,13 +151,11 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 best_auc = 0.0
 best_model_state = None
 
-
 # Training Loop
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
-    
-    # Add progress bar for training
+
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, label in train_loader_tqdm:
@@ -162,8 +166,7 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
-        
-        # Update progress bar description with loss
+
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
     # Validation
@@ -171,29 +174,37 @@ for epoch in range(epochs):
     all_labels = []
     all_outputs = []
     all_preds = []
-    
-    # Add progress bar for validation
+
     val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
 
     with torch.no_grad():
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-            output = model(tcr, epitope)  
-            preds = torch.sigmoid(output)  
-            preds = (preds > 0.5).float()  
+            output = model(tcr, epitope)
+
+            # Convert logits to probabilities and predictions
+            probs = torch.sigmoid(output)
+            preds = (probs > 0.5).float()
+
             all_labels.extend(label.cpu().numpy())
-            all_outputs.extend(output.cpu().numpy())
+            all_outputs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
-            # if epoch == 0:
-            #     print(type(all_labels), len(all_labels))
-            #     print(type(all_outputs), len(all_outputs))
-            #     print(type(all_preds), len(all_preds))
 
+    # Convert to NumPy arrays for metric calculations
+    all_labels = np.array(all_labels)
+    all_preds = np.array(all_preds)
+    all_outputs = np.array(all_outputs)
 
+    # Metrics
     auc = roc_auc_score(all_labels, all_outputs)
-    accuracy = (np.array(all_preds) == np.array(all_labels)).mean()  # Calculate accuracy
-    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}")
-    
+    accuracy = (all_preds == all_labels).mean()
+    f1 = f1_score(all_labels, all_preds)
+
+    # Confusion matrix components
+    tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
+
+    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+
     # Save best model
     if auc > best_auc:
         best_auc = auc
@@ -206,3 +217,39 @@ if best_model_state:
     print("Best model saved with AUC:", best_auc)
 
 
+# Test Block
+print("\nStarting testing phase...")
+model.load_state_dict(torch.load(model_path))
+model.eval()
+
+all_labels = []
+all_outputs = []
+all_preds = []
+
+with torch.no_grad():
+    for tcr, epitope, label in tqdm(test_loader, desc="Testing"):
+        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+        output = model(tcr, epitope)
+
+        # Convert logits to probabilities and predictions
+        probs = torch.sigmoid(output)
+        preds = (probs > 0.5).float()
+
+        all_labels.extend(label.cpu().numpy())
+        all_outputs.extend(probs.cpu().numpy())
+        all_preds.extend(preds.cpu().numpy())
+
+# Convert to NumPy arrays for metric calculations
+all_labels = np.array(all_labels)
+all_preds = np.array(all_preds)
+all_outputs = np.array(all_outputs)
+
+# Metrics
+auc = roc_auc_score(all_labels, all_outputs)
+accuracy = (all_preds == all_labels).mean()
+f1 = f1_score(all_labels, all_preds)
+
+# Confusion matrix components
+tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
+
+print(f"Test Results - AUC: {auc:.4f}, Accuracy: {accuracy:.4f}, F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
