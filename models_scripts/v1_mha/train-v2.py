@@ -39,8 +39,6 @@ train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
-test_path = args.test if args.test else config['data_paths']['test']
-print(f"test_path: {test_path}")
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -48,9 +46,12 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
+MODEL_NAME = "v2_mha"
+experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
-wandb.init(
+run = wandb.init(
     project=PROJECT_NAME,
+    job_type=f"{experiment_name}",
     entity=ENTITY_NAME,
     name=run_name,
     config=config  #YAML-Config dict
@@ -65,88 +66,45 @@ tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else con
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
-tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else embeddings_config['tcr_test']
-epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else embeddings_config['epitope_test']
-
-
-# print(train_path,'\n', val_path, '\n', tcr_embeddings_path, '\n', epitope_embeddings_path)
 
 # Load Data
-train_data = pd.read_csv(train_path, sep='\t')
-val_data = pd.read_csv(val_path, sep='\t')
-test_data = pd.read_csv(test_path, sep='\t')
-# # for embeddings in .npz file
-# tcr_embeddings = np.load(tcr_embeddings_path)
-# epitope_embeddings = np.load(epitope_embeddings_path)
+#train_data = pd.read_csv(train_path, sep='\t')
+#val_data = pd.read_csv(val_path, sep='\t')
 
-# # for embeddings in .h5 files
-# # Function to load all datasets from an HDF5 file
-# def load_h5_embeddings(file_path):
-#     embeddings_dict = {}
-#     with h5py.File(file_path, 'r') as f:
-#         for key in f.keys():  # Iterate over all keys
-#             embeddings_dict[key] = np.array(f[key])  # Store each dataset as a NumPy array
-#     return embeddings_dict
+dataset_name = f"beta_allele"
+artifact = run.use_artifact(f"{dataset_name}:latest")
+data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
+    
+train_file_path = f"{data_dir}/allele/train.tsv"
+val_file_path = f"{data_dir}/allele/validation.tsv"
 
-# # Load TCR and Epitope embeddings
-# print('Loading tcr_embeddings...')
-# tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
-# print('Loading epitope_embeddings...')
-# epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
+train_data = pd.read_csv(train_file_path, sep="\t")
+val_data = pd.read_csv(val_file_path, sep="\t")
 
-# def load_npz_embeddings(file_paths):
-#     embeddings = {}
-#     for file_path in file_paths:
-#         with np.load(file_path) as data:
-#             for key in data.files:
-#                 embeddings[key] = data[key]
-#     return embeddings
-
-# # Load embeddings
-# print(f'Loading training TCR embeddings from {tcr_train_path}')
-# tcr_train_paths = sorted([f"{tcr_train_path}{file}" for file in os.listdir(f"{tcr_train_path}") if "batch_" in file])
-# tcr_train_embeddings = load_npz_embeddings(tcr_train_paths)
-# print(f'Loading training Epitope embeddings from {epitope_train_path}')
-# epitope_train_paths = sorted([f"{epitope_train_path}{file}" for file in os.listdir(f"{epitope_train_path}") if "batch_" in file])
-# epitope_train_embeddings = load_npz_embeddings(epitope_train_paths)
-# print(f'Loading validation TCR embeddings from {tcr_valid_path}')
-# tcr_valid_paths = sorted([f"{tcr_valid_path}{file}" for file in os.listdir(f"{tcr_valid_path}") if "batch_" in file])
-# tcr_valid_embeddings = load_npz_embeddings(tcr_valid_paths)
-# print(f'Loading validation Epitope embeddings from {epitope_valid_path}')
-# epitope_valid_paths = sorted([f"{epitope_valid_path}{file}" for file in os.listdir(f"{epitope_valid_path}") if "batch_" in file])
-# epitope_valid_embeddings = load_npz_embeddings(epitope_valid_paths)
-
-# Load the embeddings
-# subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
+# HDF5 Lazy Loading for embeddings
+def load_h5_lazy(file_path):
+    """Lazy load HDF5 file and return a reference to the file."""
+    return h5py.File(file_path, 'r')
 
 
 print('Loading embeddings...')
 print("tcr_train ", tcr_train_path)
-tcr_train_embeddings = np.load(tcr_train_path)
+tcr_train_embeddings = load_h5_lazy(tcr_train_path)
 print("epi_train ", epitope_train_path)
-epitope_train_embeddings = np.load(epitope_train_path)
+epitope_train_embeddings = load_h5_lazy(epitope_train_path)
 print("tcr_valid ", tcr_valid_path)
-tcr_valid_embeddings = np.load(tcr_valid_path)
+tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
-epitope_valid_embeddings = np.load(epitope_valid_path)
-print("tcr_test ", tcr_test_path)
-tcr_test_embeddings = np.load(tcr_test_path)
-print("epi_test ", epitope_test_path)
-epitope_test_embeddings = np.load(epitope_test_path)
+epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-# Create datasets and dataloaders (when train and validation embeddings separately)
-train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
-test_dataset = TCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
 
-# # Create datasets and dataloaders 
-# train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
-# val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
+# Create datasets and dataloaders (lazy loading)
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 num_trbv = train_data['TRBV'].nunique()
 num_trbj = train_data['TRBJ'].nunique()
@@ -275,7 +233,7 @@ for epoch in range(epochs):
 
 # Save best model
 if best_model_state:
-    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
+    os.makedirs("results/trained_models/v2_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
     artifact = wandb.Artifact(run_name + "_model", type="model")

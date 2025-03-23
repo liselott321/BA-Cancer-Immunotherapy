@@ -11,6 +11,8 @@ import pandas as pd
 import sys
 import yaml
 import h5py
+import wandb
+from dotenv import load_dotenv
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -42,6 +44,14 @@ print(f"val_path: {val_path}")
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
+# Logging setup
+PROJECT_NAME = "dataset-allele"
+ENTITY_NAME = "ba_cancerimmunotherapy"
+MODEL_NAME = "v1_mha"
+experiment_name = f"Experiment - {MODEL_NAME}"
+run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
+run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
+
 # # embeddings
 # tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
 # epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
@@ -53,8 +63,18 @@ tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else con
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
 # Load Data
-train_data = pd.read_csv(train_path, sep='\t')
-val_data = pd.read_csv(val_path, sep='\t')
+#train_data = pd.read_csv(train_path, sep='\t')
+#val_data = pd.read_csv(val_path, sep='\t')
+
+dataset_name = f"beta_allele"
+artifact = run.use_artifact(f"{dataset_name}:latest")
+data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
+    
+train_file_path = f"{data_dir}/allele/train.tsv"
+val_file_path = f"{data_dir}/allele/validation.tsv"
+
+train_data = pd.read_csv(train_file_path, sep="\t")
+val_data = pd.read_csv(val_file_path, sep="\t")
 
 # # Load TCR and Epitope embeddings
 # print('Loading tcr_embeddings...')
@@ -144,6 +164,8 @@ if device.type == "cuda":
 
 model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length']).to(device)
 
+wandb.watch(model, log="all", log_freq=100)
+
 # Loss & Optimizer
 criterion = nn.BCEWithLogitsLoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -205,6 +227,25 @@ for epoch in range(epochs):
 
     print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
+    wandb.log({
+    "epoch": epoch + 1,
+    "train_loss": epoch_loss / len(train_loader),
+    "val_auc": auc,
+    "val_f1": f1,
+    "val_accuracy": accuracy,
+    "val_tp": tp,
+    "val_tn": tn,
+    "val_fp": fp,
+    "val_fn": fn,
+    "prediction_distribution": wandb.Histogram(all_outputs),
+    "label_distribution": wandb.Histogram(all_labels),
+    "val_confusion_matrix": wandb.plot.confusion_matrix(
+        y_true=all_labels,
+        preds=all_preds,
+        class_names=["Not Binding", "Binding"])
+    })
+    
+
     # Save best model
     if auc > best_auc:
         best_auc = auc
@@ -216,3 +257,8 @@ if best_model_state:
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
 
+    artifact = wandb.Artifact(run_name + "_model", type="model")
+    artifact.add_file(model_path)
+    wandb.log_artifact(artifact)
+
+wandb.finish()
