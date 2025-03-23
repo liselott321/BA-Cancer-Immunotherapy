@@ -9,10 +9,28 @@ class AttentionBlock(nn.Module):
         self.norm1 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        attn_output, _ = self.attn(x.permute(1, 0, 2), x.permute(1, 0, 2), x.permute(1, 0, 2))  
-        x = self.norm1(x + self.dropout(attn_output.permute(1, 0, 2)))  
+    def forward(self, x, key_padding_mask=None):
+        attn_output, _ = self.attn(
+            x.permute(1, 0, 2),  # Query
+            x.permute(1, 0, 2),  # Key
+            x.permute(1, 0, 2),  # Value
+            key_padding_mask=key_padding_mask
+        )
+        x = self.norm1(x + self.dropout(attn_output.permute(1, 0, 2)))
         return x
+
+# # old class without masking, just in case...
+# class AttentionBlock(nn.Module):
+#     def __init__(self, embed_dim, num_heads, dropout=0.1):
+#         super(AttentionBlock, self).__init__()
+#         self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
+#         self.norm1 = nn.LayerNorm(embed_dim)
+#         self.dropout = nn.Dropout(dropout)
+
+#     def forward(self, x):
+#         attn_output, _ = self.attn(x.permute(1, 0, 2), x.permute(1, 0, 2), x.permute(1, 0, 2))  
+#         x = self.norm1(x + self.dropout(attn_output.permute(1, 0, 2)))  
+#         return x
 
 
 class TCR_Epitope_Dataset(Dataset):
@@ -85,20 +103,42 @@ class TCR_Epitope_Transformer(nn.Module):
         self.output_layer = nn.Linear(embed_dim, 1)
 
     def forward(self, tcr, epitope):
+        # Compute embeddings
         tcr = self.tcr_embedding(tcr) + self.tcr_positional_encoding
         epitope = self.epitope_embedding(epitope) + self.epitope_positional_encoding
-        
-        # combined = torch.cat((tcr.unsqueeze(0), epitope.unsqueeze(0)), dim=0)
-        combined = torch.cat((tcr, epitope), dim=1)  # Concatenating along sequence length
-  
+
+        # Concatenate TCR and epitope along the sequence length dimension
+        combined = torch.cat((tcr, epitope), dim=1)
+
+        # Create key padding mask: Mask positions where all values are zero
+        key_padding_mask = (combined.sum(dim=-1) == 0)
+
+        # Pass through transformer layers with masking
         for layer in self.transformer_layers:
-            combined = layer(combined)
-        
-        pooled = combined.mean(dim=1)  # Average across all tokens, shape: (B, D)
+            combined = layer(combined, key_padding_mask=key_padding_mask)
 
-        # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
+        # Pooling and output layer
+        pooled = combined.mean(dim=1)  # Mean pooling across sequence
         output = self.output_layer(pooled).squeeze(1)
-
-        # pooled = combined[:, 0, :]  # Take the first token (or use other aggregation)
-    
         return output
+
+
+# ## forward without masking, just in case...
+#     def forward(self, tcr, epitope):
+#         tcr = self.tcr_embedding(tcr) + self.tcr_positional_encoding
+#         epitope = self.epitope_embedding(epitope) + self.epitope_positional_encoding
+        
+#         # combined = torch.cat((tcr.unsqueeze(0), epitope.unsqueeze(0)), dim=0)
+#         combined = torch.cat((tcr, epitope), dim=1)  # Concatenating along sequence length
+  
+#         for layer in self.transformer_layers:
+#             combined = layer(combined)
+        
+#         pooled = combined.mean(dim=1)  # Average across all tokens, shape: (B, D)
+
+#         # output = torch.sigmoid(self.output_layer(pooled)).squeeze(1)
+#         output = self.output_layer(pooled).squeeze(1)
+
+#         # pooled = combined[:, 0, :]  # Take the first token (or use other aggregation)
+    
+#         return output
