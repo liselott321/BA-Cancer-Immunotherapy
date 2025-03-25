@@ -23,6 +23,8 @@ def parse_args():
     parser.add_argument('--epochs', type=int, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, help='Batch size')
     parser.add_argument('--learning_rate', type=float, help='Learning rate')
+    parser.add_argument('--optimizer', type=str, choices=['adam', 'sgd'], help='Optimizer to use')
+    parser.add_argument('--weight_decay', type=float, help='Weight decay value for optimizer')
     
     # Model Parameters
     parser.add_argument('--embed_dim', type=int, help='Embedding dimension')

@@ -1,0 +1,22 @@
+program: models_scripts/v1_mha/train-server2.py
+method: bayes  # oder "random" für schnelleres explorieren, grid search
+
+metric:
+  name: val_auc
+  goal: maximize
+
+parameters:
+  learning_rate:
+    min: 0.0001
+    max: 0.01
+  weight_decay:
+    min: 0.00001
+    max: 0.01
+  batch_size:
+    values: [16, 32, 64]
+  num_layers:
+    values: [1, 2, 3]
+  num_heads:
+    values: [2, 4, 8]
+  optimizer:
+    values: ["adam", "sgd"]
