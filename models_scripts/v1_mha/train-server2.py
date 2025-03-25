@@ -186,10 +186,10 @@ criterion_val = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
-optimizer_name = args.optimizer if args.optimizer else wandb.config.optimizer
+optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
 num_layers = args.num_layers if args.num_layers else wandb.config.num_layers
 num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
-weight_decay = args.weight_decay if args.weight_decay else wandb.config.weight_decay
+weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
 
 if optimizer_name == "adam":
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
