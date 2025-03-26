@@ -75,7 +75,7 @@ epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddi
 #val_data = pd.read_csv(val_path, sep='\t')
 
 dataset_name = f"beta_allele"
-artifact = run.use_artifact(f"{dataset_name}:latest")
+artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
     
 train_file_path = f"{data_dir}/allele/train.tsv"
