@@ -1,3 +1,4 @@
+project: dataset-allele
 program: models_scripts/v1_mha/train-server2.py
 method: bayes  # oder "random" für schnelleres explorieren, grid search
 
