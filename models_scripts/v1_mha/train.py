@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix,  precision_score, recall_score, average_precision_score
 from tqdm import tqdm
 
 import pandas as pd
@@ -219,24 +219,31 @@ for epoch in range(epochs):
 
     # Metrics
     auc = roc_auc_score(all_labels, all_outputs)
+    ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+
+    precision = precision_score(all_labels, all_preds)
+    recall = recall_score(all_labels, all_preds)
 
     wandb.log({
     "epoch": epoch + 1,
     "train_loss": epoch_loss / len(train_loader),
     "val_auc": auc,
+    "val_ap": ap,
     "val_f1": f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
     "val_fp": fp,
     "val_fn": fn,
+    "val_precision": precision,
+    "val_recall": recall,
     "prediction_distribution": wandb.Histogram(all_outputs),
     "label_distribution": wandb.Histogram(all_labels),
     "val_confusion_matrix": wandb.plot.confusion_matrix(
