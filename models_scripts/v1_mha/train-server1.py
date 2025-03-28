@@ -197,6 +197,8 @@ elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+criterion = nn.BCEWithLogitsLoss()
+
 
 best_auc = 0.0
 best_model_state = None
@@ -215,7 +217,7 @@ for epoch in range(epochs):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
         output = model(tcr, epitope)
-        loss = criterion_train(output, label)
+        loss = criterion(output, label)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -237,7 +239,7 @@ for epoch in range(epochs):
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
-            val_loss = criterion_train(output, label)
+            val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
             probs = torch.sigmoid(output)
