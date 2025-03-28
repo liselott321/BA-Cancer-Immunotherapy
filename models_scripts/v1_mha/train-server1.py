@@ -52,14 +52,6 @@ experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
-# Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
-learning_rate = wandb.config.learning_rate
-batch_size = wandb.config.batch_size
-weight_decay = wandb.config.weight_decay
-num_layers = wandb.config.num_layers
-num_heads = wandb.config.num_heads
-optimizer_name = wandb.config.optimizer
-
 # Logge Hyperparameter explizit
 wandb.config.update({
     "model_name": MODEL_NAME,
@@ -67,13 +59,6 @@ wandb.config.update({
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
 })
-
-if optimizer_name == "adam":
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-elif optimizer_name == "sgd":
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-else:
-    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 # # embeddings
 # tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
@@ -90,7 +75,7 @@ epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddi
 #val_data = pd.read_csv(val_path, sep='\t')
 
 dataset_name = f"beta_allele"
-artifact = run.use_artifact(f"{dataset_name}:latest")
+artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
     
 train_file_path = f"{data_dir}/allele/train.tsv"
@@ -198,10 +183,26 @@ pos_weight = torch.tensor([n_neg / n_pos]).to(device)
 criterion_train = nn.BCEWithLogitsLoss()
 criterion_val = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+# Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
+learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
+batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
+optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "sgd")) #adam
+num_layers = args.num_layers if args.num_layers else wandb.config.num_layers
+num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
+weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
+
+if optimizer_name == "adam":
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+elif optimizer_name == "sgd":
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+else:
+    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
 patience = 4
+global_step = 0
 
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
@@ -218,14 +219,16 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
+        wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+        global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
     # Validation --------------------------------------------------------------------------------------------------------------
+    # Validation --------------------------------------------------------------------------------------------------------------
     model.eval()
     all_labels = []
     all_outputs = []
-    all_preds = []
 
     val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
     val_loss_total = 0
@@ -234,57 +237,61 @@ for epoch in range(epochs):
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
-            val_loss = criterion_val(output, label)
+            val_loss = criterion_train(output, label)
             val_loss_total += val_loss.item()
 
-            # Convert logits to probabilities and predictions
             probs = torch.sigmoid(output)
-            preds = (probs > 0.5).float()
-
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(probs.cpu().numpy())
-            all_preds.extend(preds.cpu().numpy())
 
-    # Convert to NumPy arrays for metric calculations
     all_labels = np.array(all_labels)
-    all_preds = np.array(all_preds)
     all_outputs = np.array(all_outputs)
 
-    # Metrics
+    # ✅ Threshold-Tuning: besten Threshold per Epoche ermitteln (z. B. nach F1)
+    from sklearn.metrics import precision_recall_curve
+
+    precision_arr, recall_arr, thresholds = precision_recall_curve(all_labels, all_outputs)
+    f1_scores = 2 * (precision_arr * recall_arr) / (precision_arr + recall_arr + 1e-8)
+    best_index = np.argmax(f1_scores)
+    best_threshold = thresholds[best_index] if best_index < len(thresholds) else 0.5
+
+    all_preds = (all_outputs > best_threshold).astype(int)
+
+    # Metriken berechnen
     auc = roc_auc_score(all_labels, all_outputs)
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
-
-    # Confusion matrix components
-    tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
-
-    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
-
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
+    tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
+
+    print(f"Epoch [{epoch+1}/{epochs}] — Best Threshold: {best_threshold:.4f} | Val AUC: {auc:.4f} | F1: {f1:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
 
     wandb.log({
-    "epoch": epoch + 1,
-    "train_loss": epoch_loss / len(train_loader),
-    "val_loss": val_loss_total / len(val_loader),
-    "val_auc": auc,
-    "val_ap": ap,
-    "val_f1": f1,
-    "val_accuracy": accuracy,
-    "val_tp": tp,
-    "val_tn": tn,
-    "val_fp": fp,
-    "val_fn": fn,
-    "val_precision": precision,
-    "val_recall": recall,
-    "prediction_distribution": wandb.Histogram(all_outputs),
-    "label_distribution": wandb.Histogram(all_labels),
-    "val_confusion_matrix": wandb.plot.confusion_matrix(
-        y_true=all_labels,
-        preds=all_preds,
-        class_names=["Not Binding", "Binding"])
+        "epoch": epoch + 1,
+        "train_loss_epoch": epoch_loss / len(train_loader),
+        "val_loss": val_loss_total / len(val_loader),
+        "val_auc": auc,
+        "val_ap": ap,
+        "val_f1": f1,
+        "val_accuracy": accuracy,
+        "val_tp": tp,
+        "val_tn": tn,
+        "val_fp": fp,
+        "val_fn": fn,
+        "val_precision": precision,
+        "val_recall": recall,
+        "val_best_threshold": best_threshold,
+        "prediction_distribution": wandb.Histogram(all_outputs),
+        "label_distribution": wandb.Histogram(all_labels),
+        "val_confusion_matrix": wandb.plot.confusion_matrix(
+            y_true=all_labels,
+            preds=all_preds,
+            class_names=["Not Binding", "Binding"]
+        )
     })
+
     
 
     # Early Stopping Check
