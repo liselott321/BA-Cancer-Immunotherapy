@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix,  precision_score, recall_score, average_precision_score
 from tqdm import tqdm
 
 import pandas as pd
@@ -52,10 +52,6 @@ experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
-# # embeddings
-# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
-
 # Embeddings paths from config/args
 tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
@@ -76,43 +72,10 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-# # Load TCR and Epitope embeddings
-# print('Loading tcr_embeddings...')
-# tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
-# print('Loading epitope_embeddings...')
-# epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
-
-# def load_npz_embeddings(file_paths):
-#     embeddings = {}
-#     for file_path in file_paths:
-#         with np.load(file_path) as data:
-#             for key in data.files:
-#                 embeddings[key] = data[key]
-#     return embeddings
-
-# # Load embeddings
-# print(f'Loading training TCR embeddings from {tcr_train_path}')
-# tcr_train_paths = sorted([f"{tcr_train_path}{file}" for file in os.listdir(f"{tcr_train_path}") if "batch_" in file])
-# tcr_train_embeddings = load_npz_embeddings(tcr_train_paths)
-# print(f'Loading training Epitope embeddings from {epitope_train_path}')
-# epitope_train_paths = sorted([f"{epitope_train_path}{file}" for file in os.listdir(f"{epitope_train_path}") if "batch_" in file])
-# epitope_train_embeddings = load_npz_embeddings(epitope_train_paths)
-# print(f'Loading validation TCR embeddings from {tcr_valid_path}')
-# tcr_valid_paths = sorted([f"{tcr_valid_path}{file}" for file in os.listdir(f"{tcr_valid_path}") if "batch_" in file])
-# tcr_valid_embeddings = load_npz_embeddings(tcr_valid_paths)
-# print(f'Loading validation Epitope embeddings from {epitope_valid_path}')
-# epitope_valid_paths = sorted([f"{epitope_valid_path}{file}" for file in os.listdir(f"{epitope_valid_path}") if "batch_" in file])
-# epitope_valid_embeddings = load_npz_embeddings(epitope_valid_paths)
-
-# Load the embeddings
-# subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
-
-
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
     """Lazy load HDF5 file and return a reference to the file."""
     return h5py.File(file_path, 'r')
-
 
 print('Loading embeddings...')
 print("tcr_train ", tcr_train_path)
@@ -124,33 +87,9 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-
-# print('Loading embeddings...')
-# print("tcr_train ", tcr_train_path)
-# tcr_train_embeddings = np.load(tcr_train_path)
-# print("epi_train ", epitope_train_path)
-# epitope_train_embeddings = np.load(epitope_train_path)
-# print("tcr_valid ", tcr_valid_path)
-# tcr_valid_embeddings = np.load(tcr_valid_path)
-# print("epi_valid ", epitope_valid_path)
-# epitope_valid_embeddings = np.load(epitope_valid_path)
-# print("tcr_test ", tcr_test_path)
-# tcr_test_embeddings = np.load(tcr_test_path)
-# print("epi_test ", epitope_test_path)
-# epitope_test_embeddings = np.load(epitope_test_path)
-
-# # Create datasets and dataloaders (when train and validation embeddings separately)
-# train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-# val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
-
 # Create datasets and dataloaders (lazy loading)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
-
-
-# # Create datasets and dataloaders 
-# train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
-# val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -198,11 +137,14 @@ for epoch in range(epochs):
     all_preds = []
 
     val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
+    val_loss_total = 0
 
     with torch.no_grad():
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
+            val_loss = criterion_val(output, label)
+            val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
             probs = torch.sigmoid(output)
@@ -219,24 +161,32 @@ for epoch in range(epochs):
 
     # Metrics
     auc = roc_auc_score(all_labels, all_outputs)
+    ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+    print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+
+    precision = precision_score(all_labels, all_preds)
+    recall = recall_score(all_labels, all_preds)
 
     wandb.log({
     "epoch": epoch + 1,
     "train_loss": epoch_loss / len(train_loader),
+    "val_loss": val_loss_total / len(val_loader),
     "val_auc": auc,
+    "val_ap": ap,
     "val_f1": f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
     "val_fp": fp,
     "val_fn": fn,
+    "val_precision": precision,
+    "val_recall": recall,
     "prediction_distribution": wandb.Histogram(all_outputs),
     "label_distribution": wandb.Histogram(all_labels),
     "val_confusion_matrix": wandb.plot.confusion_matrix(
@@ -245,7 +195,6 @@ for epoch in range(epochs):
         class_names=["Not Binding", "Binding"])
     })
     
-
     # Save best model
     if auc > best_auc:
         best_auc = auc
