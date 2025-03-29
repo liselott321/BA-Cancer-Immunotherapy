@@ -77,6 +77,16 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
+df_full = pd.concat([train_data, val_data], ignore_index=True)
+# 2. Create lookup dictionaries
+trbv_dict = {val: idx for idx, val in enumerate(df_full['TRBV'].unique())}
+trbj_dict = {val: idx for idx, val in enumerate(df_full['TRBJ'].unique())}
+mhc_dict = {val: idx for idx, val in enumerate(df_full['MHC'].unique())}
+# 3. Embedding sizes
+num_trbv = len(trbv_dict)
+num_trbj = len(trbj_dict)
+num_mhc = len(mhc_dict)
+
 # HDF5 Lazy Loading for embeddings -------------------------------------------------
 def load_h5_lazy(file_path):
     """Lazy load HDF5 file and return a reference to the file."""
@@ -95,8 +105,8 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
 
 # Create datasets and dataloaders (lazy loading) -------------------------------------
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, trbv_dict, trbj_dict, mhc_dict)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, trbv_dict, trbj_dict, mhc_dict)
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)

@@ -43,27 +43,31 @@ class TCR_Epitope_Dataset(Dataset):
         return tcr_embedding, epitope_embedding, label, trbv, trbj, mhc, task
 
 class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
-    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings):
+    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings, trbv_dict, trbj_dict, mhc_dict):
         self.data_frame = data_frame
         self.tcr_embeddings = tcr_embeddings
         self.epitope_embeddings = epitope_embeddings
-        self.trbv_dict = {val: idx for idx, val in enumerate(data_frame['TRBV'].unique())}
-        self.trbj_dict = {val: idx for idx, val in enumerate(data_frame['TRBJ'].unique())}
-        self.mhc_dict = {val: idx for idx, val in enumerate(data_frame['MHC'].unique())}
+        self.trbv_dict = trbv_dict
+        self.trbj_dict = trbj_dict
+        self.mhc_dict = mhc_dict
 
     def __len__(self):
         return len(self.data_frame)
         
     def __getitem__(self, idx):
         sample = self.data_frame.iloc[idx]
-        tcr_embedding = self.tcr_embeddings[sample['TRB_CDR3']][:]
-        epitope_embedding = self.epitope_embeddings[sample['Epitope']][:]
+        tcr_id = sample['TRB_CDR3']
+        epitope_id = sample['Epitope']
         label = sample['Binding']
-        trbv = self.trbv_dict[sample['TRBV']]
-        trbj = self.trbj_dict[sample['TRBJ']]
-        mhc = self.mhc_dict[sample['MHC']]
         task = sample['task']
-        
+    
+        tcr_embedding = self.tcr_embeddings[tcr_id][:]
+        epitope_embedding = self.epitope_embeddings[epitope_id][:]
+    
+        trbv = self.trbv_dict.get(sample['TRBV'], 0)
+        trbj = self.trbj_dict.get(sample['TRBJ'], 0)
+        mhc = self.mhc_dict.get(sample['MHC'], 0)
+    
         return (
             torch.tensor(tcr_embedding, dtype=torch.float32),
             torch.tensor(epitope_embedding, dtype=torch.float32),
