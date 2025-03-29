@@ -137,11 +137,14 @@ for epoch in range(epochs):
     all_preds = []
 
     val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Validation]", leave=False)
+    val_loss_total = 0
 
     with torch.no_grad():
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
+            val_loss = criterion_val(output, label)
+            val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
             probs = torch.sigmoid(output)
@@ -173,6 +176,7 @@ for epoch in range(epochs):
     wandb.log({
     "epoch": epoch + 1,
     "train_loss": epoch_loss / len(train_loader),
+    "val_loss": val_loss_total / len(val_loader),
     "val_auc": auc,
     "val_ap": ap,
     "val_f1": f1,
