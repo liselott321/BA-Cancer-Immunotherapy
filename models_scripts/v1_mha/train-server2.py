@@ -177,11 +177,7 @@ model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
-n_pos = (val_data["Binding"] == 1).sum()
-n_neg = (val_data["Binding"] == 0).sum()
-pos_weight = torch.tensor([n_neg / n_pos]).to(device)
-criterion_train = nn.BCEWithLogitsLoss()
-criterion_val = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+criterion = nn.BCEWithLogitsLoss()
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -215,7 +211,7 @@ for epoch in range(epochs):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
         output = model(tcr, epitope)
-        loss = criterion_train(output, label)
+        loss = criterion(output, label)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -237,7 +233,7 @@ for epoch in range(epochs):
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
-            val_loss = criterion_val(output, label)
+            val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions

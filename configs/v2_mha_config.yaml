@@ -1,6 +1,6 @@
-epochs: 10
-batch_size: 32
-learning_rate: 0.001
+epochs: 25
+batch_size: 16
+learning_rate: 0.004518
 embed_dim: 128
 num_heads: 8
 num_layers: 2
@@ -12,11 +12,11 @@ data_paths:
   val: "../../../../data/splitted_datasets/allele/beta/validation.tsv"
   test: "../../../../data/splitted_datasets/allele/beta/test.tsv"
 embeddings:
-  tcr: "../../../../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
-  epitope: "../../../../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"
-  tcr_train: "../../../../data/embeddings/beta/allele/padded_pca/padded_train_tcr_embeddings_final.h5"
-  epitope_train: "../../../../data/embeddings/beta/allele/padded_pca/padded_train_epitope_embeddings_final.h5"
-  tcr_valid: "../../../../data/embeddings/beta/allele/padded_pca/padded_valid_tcr_embeddings_final.h5"
-  epitope_valid: "../../../../data/embeddings/beta/allele/padded_pca/padded_valid_epitope_embeddings_final.h5"
-  tcr_test: "../../../../data/embeddings/beta/allele/padded_pca/padded_test_tcr_embeddings_final.h5"
-  epitope_test: "../../../../data/embeddings/beta/allele/padded_pca/padded_test_epitope_embeddings_final.h5"
+  tcr: "../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
+  epitope: "../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"
+  tcr_train: "../data/embeddings/beta/allele/padded_pca/padded_train_tcr_embeddings_final.h5"
+  epitope_train: "../data/embeddings/beta/allele/padded_pca/padded_train_epitope_embeddings_final.h5"
+  tcr_valid: "../data/embeddings/beta/allele/padded_pca/padded_valid_tcr_embeddings_final.h5"
+  epitope_valid: "../data/embeddings/beta/allele/padded_pca/padded_valid_epitope_embeddings_final.h5"
+  tcr_test: "../data/embeddings/beta/allele/padded_pca/padded_test_tcr_embeddings_final.h5"
+  epitope_test: "../data/embeddings/beta/allele/padded_pca/padded_test_epitope_embeddings_final.h5"
