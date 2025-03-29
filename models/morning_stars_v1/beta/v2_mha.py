@@ -9,9 +9,14 @@ class AttentionBlock(nn.Module):
         self.norm1 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        attn_output, _ = self.attn(x.permute(1, 0, 2), x.permute(1, 0, 2), x.permute(1, 0, 2))  
-        x = self.norm1(x + self.dropout(attn_output.permute(1, 0, 2)))  
+    def forward(self, x, key_padding_mask=None):
+        attn_output, _ = self.attn(
+            x.permute(1, 0, 2),
+            x.permute(1, 0, 2),
+            x.permute(1, 0, 2),
+            key_padding_mask=key_padding_mask
+        )
+        x = self.norm1(x + self.dropout(attn_output.permute(1, 0, 2)))
         return x
 
 class TCR_Epitope_Dataset(Dataset):
@@ -37,21 +42,53 @@ class TCR_Epitope_Dataset(Dataset):
     
         return tcr_embedding, epitope_embedding, label, trbv, trbj, mhc, task
 
+class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
+    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings):
+        self.data_frame = data_frame
+        self.tcr_embeddings = tcr_embeddings
+        self.epitope_embeddings = epitope_embeddings
+        self.trbv_dict = {val: idx for idx, val in enumerate(data_frame['TRBV'].unique())}
+        self.trbj_dict = {val: idx for idx, val in enumerate(data_frame['TRBJ'].unique())}
+        self.mhc_dict = {val: idx for idx, val in enumerate(data_frame['MHC'].unique())}
+
+    def __len__(self):
+        return len(self.data_frame)
+        
+    def __getitem__(self, idx):
+        sample = self.data_frame.iloc[idx]
+        tcr_embedding = self.tcr_embeddings[sample['TRB_CDR3']][:]
+        epitope_embedding = self.epitope_embeddings[sample['Epitope']][:]
+        label = sample['Binding']
+        trbv = self.trbv_dict[sample['TRBV']]
+        trbj = self.trbj_dict[sample['TRBJ']]
+        mhc = self.mhc_dict[sample['MHC']]
+        task = sample['task']
+        
+        return (
+            torch.tensor(tcr_embedding, dtype=torch.float32),
+            torch.tensor(epitope_embedding, dtype=torch.float32),
+            torch.tensor(label, dtype=torch.float32),
+            torch.tensor(trbv, dtype=torch.long),
+            torch.tensor(trbj, dtype=torch.long),
+            torch.tensor(mhc, dtype=torch.long),
+            task
+        )
+        
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_tcr_length, max_epitope_length,
                  num_trbv, num_trbj, num_mhc, dropout=0.1):
-        super().__init__()
+        super(TCR_Epitope_Transformer, self).__init__()
 
         self.tcr_embedding = nn.Linear(512, embed_dim)
         self.epitope_embedding = nn.Linear(512, embed_dim)
+
+        self.trbv_embedding = nn.Embedding(num_trbv, embed_dim)
+        self.trbj_embedding = nn.Embedding(num_trbj, embed_dim)
+        self.mhc_embedding = nn.Embedding(num_mhc, embed_dim)
+
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
 
-        self.trbv_embed = nn.Embedding(num_trbv, embed_dim)
-        self.trbj_embed = nn.Embedding(num_trbj, embed_dim)
-        self.mhc_embed = nn.Embedding(num_mhc, embed_dim)
-
-        # Transformer
         self.transformer_layers = nn.ModuleList([
             AttentionBlock(embed_dim, num_heads, dropout) for _ in range(num_layers)
         ])
@@ -59,20 +96,30 @@ class TCR_Epitope_Transformer(nn.Module):
         self.output_layer = nn.Linear(embed_dim, 1)
 
     def forward(self, tcr, epitope, trbv, trbj, mhc):
-        tcr = self.tcr_embedding(tcr) + self.tcr_positional_encoding
-        epitope = self.epitope_embedding(epitope) + self.epitope_positional_encoding
+        # Embedding
+        tcr_embedded = self.tcr_embedding(tcr)
+        epitope_embedded = self.epitope_embedding(epitope)
 
-        # Embed categorical inputs
-        trbv_embed = self.trbv_embed(trbv).unsqueeze(1)  # (B, 1, D)
-        trbj_embed = self.trbj_embed(trbj).unsqueeze(1)
-        mhc_embed = self.mhc_embed(mhc).unsqueeze(1)
+        # Positional encoding
+        tcr = tcr_embedded + self.tcr_positional_encoding[:, :tcr_embedded.size(1), :]
+        epitope = epitope_embedded + self.epitope_positional_encoding[:, :epitope_embedded.size(1), :]
 
-        # Combine everything as one sequence
+        # Lookup: TRBV, TRBJ, MHC (shape: [batch_size, embed_dim])
+        trbv_embed = self.trbv_embedding(trbv).unsqueeze(1)
+        trbj_embed = self.trbj_embedding(trbj).unsqueeze(1)
+        mhc_embed = self.mhc_embedding(mhc).unsqueeze(1)
+
+        # Combine all into one sequence: [batch_size, total_seq_len, embed_dim]
         combined = torch.cat((tcr, epitope, trbv_embed, trbj_embed, mhc_embed), dim=1)
 
-        for layer in self.transformer_layers:
-            combined = layer(combined)
+        # Key padding mask (optional – here just set to None)
+        key_padding_mask = None
 
+        # Transformer encoding
+        for layer in self.transformer_layers:
+            combined = layer(combined, key_padding_mask=key_padding_mask)
+
+        # Mean pooling & output
         pooled = combined.mean(dim=1)
         output = self.output_layer(pooled).squeeze(1)
         return output

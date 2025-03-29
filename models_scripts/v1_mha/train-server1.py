@@ -37,9 +37,9 @@ print(f'Learning rate: {learning_rate}')
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
 train_path = args.train if args.train else config['data_paths']['train']
-# print(f"train_path: {train_path}")
+print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
-# print(f"val_path: {val_path}")
+print(f"val_path: {val_path}")
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -59,6 +59,10 @@ wandb.config.update({
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
 })
+
+# # embeddings
+# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
+# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
 # Embeddings paths from config/args
 tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
@@ -80,6 +84,39 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
+# ------------------------------------------------------------------
+
+# # Load TCR and Epitope embeddings
+# print('Loading tcr_embeddings...')
+# tcr_embeddings = load_h5_embeddings(tcr_embeddings_path)
+# print('Loading epitope_embeddings...')
+# epitope_embeddings = load_h5_embeddings(epitope_embeddings_path)
+
+# def load_npz_embeddings(file_paths):
+#     embeddings = {}
+#     for file_path in file_paths:
+#         with np.load(file_path) as data:
+#             for key in data.files:
+#                 embeddings[key] = data[key]
+#     return embeddings
+
+# # Load embeddings
+# print(f'Loading training TCR embeddings from {tcr_train_path}')
+# tcr_train_paths = sorted([f"{tcr_train_path}{file}" for file in os.listdir(f"{tcr_train_path}") if "batch_" in file])
+# tcr_train_embeddings = load_npz_embeddings(tcr_train_paths)
+# print(f'Loading training Epitope embeddings from {epitope_train_path}')
+# epitope_train_paths = sorted([f"{epitope_train_path}{file}" for file in os.listdir(f"{epitope_train_path}") if "batch_" in file])
+# epitope_train_embeddings = load_npz_embeddings(epitope_train_paths)
+# print(f'Loading validation TCR embeddings from {tcr_valid_path}')
+# tcr_valid_paths = sorted([f"{tcr_valid_path}{file}" for file in os.listdir(f"{tcr_valid_path}") if "batch_" in file])
+# tcr_valid_embeddings = load_npz_embeddings(tcr_valid_paths)
+# print(f'Loading validation Epitope embeddings from {epitope_valid_path}')
+# epitope_valid_paths = sorted([f"{epitope_valid_path}{file}" for file in os.listdir(f"{epitope_valid_path}") if "batch_" in file])
+# epitope_valid_embeddings = load_npz_embeddings(epitope_valid_paths)
+
+# Load the embeddings
+# subset_tcr_emb_train = np.load('./dummy_data/subset_tcr_emb_train.npy', allow_pickle=True)
+
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
@@ -97,9 +134,33 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+# ------------------------------------------------------------------
+# print('Loading embeddings...')
+# print("tcr_train ", tcr_train_path)
+# tcr_train_embeddings = np.load(tcr_train_path)
+# print("epi_train ", epitope_train_path)
+# epitope_train_embeddings = np.load(epitope_train_path)
+# print("tcr_valid ", tcr_valid_path)
+# tcr_valid_embeddings = np.load(tcr_valid_path)
+# print("epi_valid ", epitope_valid_path)
+# epitope_valid_embeddings = np.load(epitope_valid_path)
+# print("tcr_test ", tcr_test_path)
+# tcr_test_embeddings = np.load(tcr_test_path)
+# print("epi_test ", epitope_test_path)
+# epitope_test_embeddings = np.load(epitope_test_path)
+
+# # Create datasets and dataloaders (when train and validation embeddings separately)
+# train_dataset = TCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+# val_dataset = TCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+
 # Create datasets and dataloaders (lazy loading)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+
+
+# # Create datasets and dataloaders 
+# train_dataset = TCR_Epitope_Dataset(train_data, tcr_embeddings, epitope_embeddings)
+# val_dataset = TCR_Epitope_Dataset(val_data, tcr_embeddings, epitope_embeddings)
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -116,11 +177,7 @@ model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
-n_pos = (val_data["Binding"] == 1).sum()
-n_neg = (val_data["Binding"] == 0).sum()
-pos_weight = torch.tensor([n_neg / n_pos]).to(device)
-criterion_train = nn.BCEWithLogitsLoss()
-criterion_val = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+criterion = nn.BCEWithLogitsLoss()
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -136,8 +193,6 @@ elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
-criterion = nn.BCEWithLogitsLoss()
-
 
 best_auc = 0.0
 best_model_state = None
