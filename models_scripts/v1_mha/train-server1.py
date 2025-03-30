@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import sys
@@ -264,6 +265,24 @@ for epoch in range(epochs):
 
     print(f"Epoch [{epoch+1}/{epochs}] — Best Threshold: {best_threshold:.4f} | Val AUC: {auc:.4f} | F1: {f1:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
 
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(all_labels, all_outputs)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc:.2f})')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend()
+    
+    # Speichern und in wandb loggen
+    os.makedirs("results", exist_ok=True)
+    roc_curve_path = "results/roc_curve.png"
+    plt.savefig(roc_curve_path)
+    wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
+    plt.close()
+    
     wandb.log({
         "epoch": epoch + 1,
         "train_loss_epoch": epoch_loss / len(train_loader),
