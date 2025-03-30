@@ -37,9 +37,6 @@ class TCR_Epitope_Dataset(Dataset):
         return tcr_embedding, epitope_embedding, label
 
 
-<<<<<<< HEAD
-# Custom Dataset class to handle lazy-loaded embeddings
-=======
 # for global descriptors
 class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
     def __init__(self, df, tcr_emb, epi_emb, descriptor_file):
@@ -118,7 +115,6 @@ class TCR_Epitope_Transformer_WithDescriptors(nn.Module):
 
 
 '''
->>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 class LazyTCR_Epitope_PLE_Dataset(torch.utils.data.Dataset):
     def __init__(self, df, tcr_emb, epi_emb, ple_file):
         self.df = df
@@ -186,8 +182,4 @@ class TCR_Epitope_Transformer_Multimodal(nn.Module):
             combined = layer(combined, key_padding_mask=mask)
 
         pooled = combined.mean(dim=1)
-<<<<<<< HEAD
-        return self.output_layer(pooled).squeeze(1)
-=======
         return self.output_layer(pooled).squeeze(1)'''
->>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
