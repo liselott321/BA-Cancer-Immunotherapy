@@ -37,7 +37,84 @@ class TCR_Epitope_Dataset(Dataset):
         return tcr_embedding, epitope_embedding, label
 
 
-# Custom Dataset class to handle lazy-loaded embeddings
+# for global descriptors
+class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
+    def __init__(self, df, tcr_emb, epi_emb, descriptor_file):
+        self.df = df
+        self.tcr_emb = tcr_emb
+        self.epi_emb = epi_emb
+        self.desc_data = h5py.File(descriptor_file, 'r')
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        tcr_embed = self.tcr_emb[row["TRB_CDR3"]][:]
+        epi_embed = self.epi_emb[row["Epitope"]][:]
+        tcr_desc = self.desc_data["tcr_encoded"][idx]
+        epi_desc = self.desc_data["epi_encoded"][idx]
+        label = row["Binding"]
+
+        return (
+            torch.tensor(tcr_embed, dtype=torch.float32),
+            torch.tensor(epi_embed, dtype=torch.float32),
+            torch.tensor(tcr_desc, dtype=torch.float32),
+            torch.tensor(epi_desc, dtype=torch.float32),
+            torch.tensor(label, dtype=torch.float32),
+        )
+
+class TCR_Epitope_Transformer_WithDescriptors(nn.Module):
+    def __init__(self, embed_dim, num_heads, num_layers, tcr_descriptor_dim, epi_descriptor_dim, dropout=0.1):
+        super().__init__()
+
+        self.protbert_tcr = nn.Sequential(
+        nn.Linear(1024, embed_dim),
+        nn.Tanh())
+        
+        self.protbert_epi = nn.Sequential(
+            nn.Linear(1024, embed_dim),
+            nn.Tanh()
+        )
+        self.desc_tcr = nn.Sequential(
+            nn.Linear(tcr_descriptor_dim, embed_dim),
+            nn.Tanh()
+        )
+        self.desc_epi = nn.Sequential(
+            nn.Linear(epi_descriptor_dim, embed_dim),
+            nn.Tanh())
+    
+        self.transformer_layers = nn.ModuleList([
+            AttentionBlock(embed_dim, num_heads, dropout) for _ in range(num_layers)
+        ])
+        self.output_layer = nn.Linear(embed_dim, 1)
+
+    def forward(self, tcr_embed, epi_embed, tcr_desc, epi_desc):
+        # Berechne ProtBERT Embeddings [B, 43, D]
+        tcr_seq = self.protbert_tcr(tcr_embed)  # [B, 43, D]
+        epi_seq = self.protbert_epi(epi_embed)  # [B, 43, D]
+        
+        # Deskriptoren sind global (also nur [B, D])
+        # → expandiere auf Sequenzlänge
+        tcr_desc_exp = self.desc_tcr(tcr_desc).unsqueeze(1).repeat(1, tcr_seq.shape[1], 1)  # [B, 43, D]
+        epi_desc_exp = self.desc_epi(epi_desc).unsqueeze(1).repeat(1, epi_seq.shape[1], 1)  # [B, 43, D]
+        
+        # Kombiniere
+        tcr = tcr_seq + tcr_desc_exp
+        epi = epi_seq + epi_desc_exp
+
+        combined = torch.cat((tcr, epi), dim=1)  # [B, 86, D]
+        mask = (combined.sum(dim=-1) == 0)
+
+        for layer in self.transformer_layers:
+            combined = layer(combined, key_padding_mask=mask)
+
+        pooled = combined.mean(dim=1)
+        return self.output_layer(pooled).squeeze(1)
+
+
+
+'''
 class LazyTCR_Epitope_PLE_Dataset(torch.utils.data.Dataset):
     def __init__(self, df, tcr_emb, epi_emb, ple_file):
         self.df = df
@@ -105,4 +182,4 @@ class TCR_Epitope_Transformer_Multimodal(nn.Module):
             combined = layer(combined, key_padding_mask=mask)
 
         pooled = combined.mean(dim=1)
-        return self.output_layer(pooled).squeeze(1)
+        return self.output_layer(pooled).squeeze(1)'''
