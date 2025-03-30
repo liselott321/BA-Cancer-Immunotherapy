@@ -1,5 +1,21 @@
 import numpy as np
 from peptides import Peptide
+<<<<<<< HEAD
+=======
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+def encode_descriptor_sequence(seq, selected_features):
+    try:
+        desc = Peptide(seq).descriptors()
+        return np.array([desc.get(f, 0.0) for f in selected_features])
+    except:
+        return np.zeros(len(selected_features))
+
+
+#alter code
+'''import numpy as np
+from peptides import Peptide
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 from Bio.SeqUtils.ProtParamData import kd
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
@@ -67,4 +83,8 @@ def encode_sequence_with_full_PLE(seq, bin_edges_list):
 # ==== 5. Padding ====
 
 def pad_encoded_sequences(sequences, max_len=None):
+<<<<<<< HEAD
     return pad_sequences(sequences, maxlen=max_len, padding='post', dtype='float32')
+=======
+    return pad_sequences(sequences, maxlen=max_len, padding='post', dtype='float32')'''
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52

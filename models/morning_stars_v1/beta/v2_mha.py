@@ -67,6 +67,12 @@ class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
         trbv = self.trbv_dict.get(sample['TRBV'], 0)
         trbj = self.trbj_dict.get(sample['TRBJ'], 0)
         mhc = self.mhc_dict.get(sample['MHC'], 0)
+<<<<<<< HEAD
+=======
+
+        if sample["TRBV"] not in self.trbv_dict:
+            print(f"Fehlender TRBV: {sample['TRBV']}")
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
     
         return (
             torch.tensor(tcr_embedding, dtype=torch.float32),
