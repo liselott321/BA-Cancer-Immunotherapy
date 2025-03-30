@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, help='Learning rate')
     parser.add_argument('--optimizer', type=str, choices=['adam', 'sgd'], help='Optimizer to use')
     parser.add_argument('--weight_decay', type=float, help='Weight decay value for optimizer')
+    parser.add_argument('--dropout', type=float, help='Dropout value for TCR_Epitope_transformer class')
     
     # Model Parameters
     parser.add_argument('--embed_dim', type=int, help='Embedding dimension')
