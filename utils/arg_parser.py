@@ -18,6 +18,7 @@ def parse_args():
     parser.add_argument('--tcr_valid_embeddings', type=str, help='Path to valid TCR embeddings')
     parser.add_argument('--epitope_valid_embeddings', type=str, help='Path to valid Epitope embeddings')
     parser.add_argument('--ple_path', type=str, default=None, help='Pfad zur PLE HDF5 Datei')
+    parser.add_argument("--descriptor_path", type=str, help="Pfad zu den globalen Deskriptor-Features (HDF5)")
 
     
     # Training Parameters
