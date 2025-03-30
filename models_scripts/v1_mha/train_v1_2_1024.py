@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix,  precision_score, recall_score, average_precision_score
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import sys
@@ -17,7 +18,7 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.O__v1_mha_1024 import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024 import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -57,6 +58,7 @@ tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else con
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
+dropout = args.dropout if args.dropout else config['dropout']
 
 # Load Data
 #train_data = pd.read_csv(train_path, sep='\t')
@@ -101,7 +103,7 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length']).to(device)
+model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length', dropout]).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -111,6 +113,9 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 best_auc = 0.0
 best_model_state = None
+early_stop_counter = 0
+patience = 10
+global_step = 0
 
 # Training Loop
 for epoch in range(epochs):
@@ -127,6 +132,8 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
+        wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+        global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
@@ -173,9 +180,27 @@ for epoch in range(epochs):
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
 
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(all_labels, all_outputs)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc:.2f})')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend()
+    
+    # Speichern und in wandb loggen
+    os.makedirs("results", exist_ok=True)
+    roc_curve_path = "results/roc_curve.png"
+    plt.savefig(roc_curve_path)
+    wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
+    plt.close()
+
     wandb.log({
     "epoch": epoch + 1,
-    "train_loss": epoch_loss / len(train_loader),
+    "train_loss_epoch": epoch_loss / len(train_loader),
     "val_loss": val_loss_total / len(val_loader),
     "val_auc": auc,
     "val_ap": ap,
@@ -195,10 +220,17 @@ for epoch in range(epochs):
         class_names=["Not Binding", "Binding"])
     })
     
-    # Save best model
+    # Early Stopping Check
     if auc > best_auc:
         best_auc = auc
         best_model_state = model.state_dict()
+        early_stop_counter = 0
+    else:
+        early_stop_counter += 1
+        print(f"No improvement in AUC. Early stop counter: {early_stop_counter}/{patience}")
+        if early_stop_counter >= patience:
+            print("Early stopping triggered.")
+            break
 
 # Save best model
 if best_model_state:
