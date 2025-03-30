@@ -128,9 +128,15 @@ model = TCR_Epitope_Transformer(
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
+<<<<<<< HEAD
+    num_trbv,
+    num_trbj,
+    num_mhc
+=======
     num_trbv=len(trbv_dict),     
     num_trbj=len(trbj_dict),
     num_mhc=len(mhc_dict)
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 ).to(device)
 
 # Watch model

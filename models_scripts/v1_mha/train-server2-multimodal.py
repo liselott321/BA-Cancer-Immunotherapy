@@ -19,8 +19,12 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
+<<<<<<< HEAD
+from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_Multimodal, TCR_Epitope_Dataset, LazyTCR_Epitope_PLE_Dataset
+=======
 #from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_Multimodal, TCR_Epitope_Dataset, LazyTCR_Epitope_PLE_Dataset
 from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_WithDescriptors, LazyTCR_Epitope_Descriptor_Dataset
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -45,7 +49,10 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 ple_path = args.ple_path if args.ple_path else config['ple_embeddings']
 print(f"ple_path: {ple_path}")
+<<<<<<< HEAD
+=======
 descriptor_path = args.descriptor_path or config["descriptor_embeddings"]
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -101,6 +108,13 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+<<<<<<< HEAD
+# ------------------------------------------------------------------
+
+# Create datasets and dataloaders (lazy loading)
+train_dataset = LazyTCR_Epitope_PLE_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_path)
+val_dataset = LazyTCR_Epitope_PLE_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_path)
+=======
 descriptor_data = load_h5_lazy(descriptor_path)
 
 # ------------------------------------------------------------------
@@ -112,6 +126,7 @@ descriptor_data = load_h5_lazy(descriptor_path)
 train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, descriptor_path)
 val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, descriptor_path)
 
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -123,6 +138,9 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
+<<<<<<< HEAD
+model = TCR_Epitope_Transformer_Multimodal(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], ple_dim=30).to(device)
+=======
 #model = TCR_Epitope_Transformer_Multimodal(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], ple_dim=30).to(device)
 
 tcr_dim = descriptor_data["tcr_encoded"].shape[1]
@@ -136,11 +154,20 @@ model = TCR_Epitope_Transformer_WithDescriptors(
     epi_descriptor_dim=epi_dim
 ).to(device)
 
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
+<<<<<<< HEAD
 criterion = nn.BCEWithLogitsLoss()
+=======
+<<<<<<< HEAD
+criterion = nn.BCEWithLogitsLoss()
+=======
+criterion = nn.MSELoss()
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
+>>>>>>> f2951fcaca35f793e951bfef9b97f60220e9d8ef
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -160,7 +187,11 @@ else:
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
+<<<<<<< HEAD
+patience = 4
+=======
 patience = 6
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -170,12 +201,21 @@ for epoch in range(epochs):
 
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
     
+<<<<<<< HEAD
+    for tcr_emb, epi_emb, tcr_ple, epi_ple, label in train_loader_tqdm:
+        tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
+        tcr_ple, epi_ple = tcr_ple.to(device), epi_ple.to(device)
+        label = label.to(device)
+        optimizer.zero_grad()
+        output = model(tcr_emb, epi_emb, tcr_ple, epi_ple)
+=======
     for tcr_emb, epi_emb, tcr_desc, epi_desc, label in train_loader_tqdm:
         tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
         tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
         label = label.to(device)
         optimizer.zero_grad()
         output = model(tcr_emb, epi_emb, tcr_desc, epi_desc)
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
         loss = criterion(output, label)
         loss.backward()
         optimizer.step()
@@ -195,16 +235,32 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
+<<<<<<< HEAD
+        for tcr_emb, epi_emb, tcr_ple, epi_ple, label in val_loader_tqdm:
+            tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
+            tcr_ple, epi_ple = tcr_ple.to(device), epi_ple.to(device)
+            label = label.to(device)
+            output = model(tcr_emb, epi_emb, tcr_ple, epi_ple)
+=======
         for tcr_emb, epi_emb, tcr_desc, epi_desc, label in val_loader_tqdm:
             tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
             tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
             label = label.to(device)
             output = model(tcr_emb, epi_emb, tcr_desc, epi_desc)
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
+<<<<<<< HEAD
             probs = torch.sigmoid(output)
+=======
+<<<<<<< HEAD
+            probs = torch.sigmoid(output)
+=======
+            probs = torch.tanh(output)
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
+>>>>>>> f2951fcaca35f793e951bfef9b97f60220e9d8ef
             preds = (probs > 0.5).float()
 
             all_labels.extend(label.cpu().numpy())

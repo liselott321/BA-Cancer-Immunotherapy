@@ -1,6 +1,10 @@
 epochs: 25
 batch_size: 16
+<<<<<<< HEAD
+learning_rate: 0.004518
+=======
 learning_rate: 0.0001
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 embed_dim: 128
 num_heads: 8
 num_layers: 2
