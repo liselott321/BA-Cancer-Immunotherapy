@@ -163,6 +163,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 
+<<<<<<< HEAD
+=======
+data/physico/ple_encoded_physchem.h5
+>>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
 # Weights & Biases files 
 wandb
 */wandb

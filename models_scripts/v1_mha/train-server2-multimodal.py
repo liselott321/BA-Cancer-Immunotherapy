@@ -4,8 +4,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+
 
 import pandas as pd
 import sys
@@ -17,7 +19,8 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_Multimodal, TCR_Epitope_Dataset, LazyTCR_Epitope_PLE_Dataset
+#from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_Multimodal, TCR_Epitope_Dataset, LazyTCR_Epitope_PLE_Dataset
+from models.morning_stars_v1.beta.v1_mha_multimodal import TCR_Epitope_Transformer_WithDescriptors, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -42,6 +45,9 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 ple_path = args.ple_path if args.ple_path else config['ple_embeddings']
 print(f"ple_path: {ple_path}")
+
+descriptor_path = args.descriptor_path or config["descriptor_embeddings"]
+
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -97,11 +103,17 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+descriptor_data = load_h5_lazy(descriptor_path)
+
 # ------------------------------------------------------------------
 
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_PLE_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_path)
-val_dataset = LazyTCR_Epitope_PLE_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_path)
+#train_dataset = LazyTCR_Epitope_PLE_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_path)
+#val_dataset = LazyTCR_Epitope_PLE_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_path)
+
+train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, descriptor_path)
+val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, descriptor_path)
+
 
 # Data loaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -113,7 +125,24 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer_Multimodal(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], ple_dim=30).to(device)
+
+tcr_dim = descriptor_data["tcr_encoded"].shape[1]
+epi_dim = descriptor_data["epi_encoded"].shape[1]
+
+#model = TCR_Epitope_Transformer_Multimodal(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], ple_dim=30).to(device)
+
+tcr_dim = descriptor_data["tcr_encoded"].shape[1]
+epi_dim = descriptor_data["epi_encoded"].shape[1]
+
+model = TCR_Epitope_Transformer_WithDescriptors(
+    embed_dim=config['embed_dim'],
+    num_heads=config['num_heads'],
+    num_layers=config['num_layers'],
+    tcr_descriptor_dim=tcr_dim,
+    epi_descriptor_dim=epi_dim
+).to(device)
+
+
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -138,7 +167,7 @@ else:
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 4
+patience = 6
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -148,12 +177,13 @@ for epoch in range(epochs):
 
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
     
-    for tcr_emb, epi_emb, tcr_ple, epi_ple, label in train_loader_tqdm:
+
+    for tcr_emb, epi_emb, tcr_desc, epi_desc, label in train_loader_tqdm:
         tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
-        tcr_ple, epi_ple = tcr_ple.to(device), epi_ple.to(device)
+        tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
         label = label.to(device)
         optimizer.zero_grad()
-        output = model(tcr_emb, epi_emb, tcr_ple, epi_ple)
+        output = model(tcr_emb, epi_emb, tcr_desc, epi_desc)
         loss = criterion(output, label)
         loss.backward()
         optimizer.step()
@@ -173,16 +203,17 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr_emb, epi_emb, tcr_ple, epi_ple, label in val_loader_tqdm:
+        for tcr_emb, epi_emb, tcr_desc, epi_desc, label in val_loader_tqdm:
             tcr_emb, epi_emb = tcr_emb.to(device), epi_emb.to(device)
-            tcr_ple, epi_ple = tcr_ple.to(device), epi_ple.to(device)
+            tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
             label = label.to(device)
-            output = model(tcr_emb, epi_emb, tcr_ple, epi_ple)
+            output = model(tcr_emb, epi_emb, tcr_desc, epi_desc)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
             probs = torch.sigmoid(output)
+
             preds = (probs > 0.5).float()
 
             all_labels.extend(label.cpu().numpy())
@@ -207,6 +238,22 @@ for epoch in range(epochs):
 
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(all_labels, all_outputs)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc:.2f})')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend()
+    
+    # Speichern und in wandb loggen
+    roc_curve_path = "results/roc_curve.png"
+    plt.savefig(roc_curve_path)
+    wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
+    plt.close()
 
     wandb.log({
     "epoch": epoch + 1,
