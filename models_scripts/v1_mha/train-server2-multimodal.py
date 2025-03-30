@@ -138,7 +138,7 @@ model = TCR_Epitope_Transformer_WithDescriptors(
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.MSELoss()
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -158,7 +158,7 @@ else:
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 4
+patience = 6
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -202,7 +202,7 @@ for epoch in range(epochs):
             val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
-            probs = torch.sigmoid(output)
+            probs = torch.tanh(output)
             preds = (probs > 0.5).float()
 
             all_labels.extend(label.cpu().numpy())

@@ -68,11 +68,22 @@ class TCR_Epitope_Transformer_WithDescriptors(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, tcr_descriptor_dim, epi_descriptor_dim, dropout=0.1):
         super().__init__()
 
-        self.protbert_tcr = nn.Linear(512, embed_dim)
-        self.protbert_epi = nn.Linear(512, embed_dim)
-        self.desc_tcr = nn.Linear(tcr_descriptor_dim, embed_dim)
-        self.desc_epi = nn.Linear(epi_descriptor_dim, embed_dim)
-
+        self.protbert_tcr = nn.Sequential(
+        nn.Linear(1024, embed_dim),
+        nn.Tanh())
+        
+        self.protbert_epi = nn.Sequential(
+            nn.Linear(1024, embed_dim),
+            nn.Tanh()
+        )
+        self.desc_tcr = nn.Sequential(
+            nn.Linear(tcr_descriptor_dim, embed_dim),
+            nn.Tanh()
+        )
+        self.desc_epi = nn.Sequential(
+            nn.Linear(epi_descriptor_dim, embed_dim),
+            nn.Tanh())
+    
         self.transformer_layers = nn.ModuleList([
             AttentionBlock(embed_dim, num_heads, dropout) for _ in range(num_layers)
         ])
