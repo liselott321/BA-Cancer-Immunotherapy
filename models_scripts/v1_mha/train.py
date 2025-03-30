@@ -143,11 +143,7 @@ for epoch in range(epochs):
         for tcr, epitope, label in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
-<<<<<<< HEAD
             val_loss = criterion_val(output, label)
-=======
-            val_loss = criterion(output, label)
->>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
             val_loss_total += val_loss.item()
 
             # Convert logits to probabilities and predictions
