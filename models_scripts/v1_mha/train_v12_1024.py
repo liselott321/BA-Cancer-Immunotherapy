@@ -103,7 +103,7 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length', dropout]).to(device)
+model = TCR_Epitope_Transformer(config['embed_dim'], config['num_heads'], config['num_layers'], config['max_tcr_length'], config['max_epitope_length'], dropout).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -114,7 +114,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 10
+patience = 5
 global_step = 0
 
 # Training Loop
