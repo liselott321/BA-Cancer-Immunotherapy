@@ -4,8 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
-
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix,  precision_score, recall_score, average_precision_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -19,7 +18,7 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024 import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v13_mha_1024 import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -60,7 +59,7 @@ epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddi
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 dropout = args.dropout if args.dropout else config['dropout']
-print("Dropout: ", dropout)
+
 # Load Data
 #train_data = pd.read_csv(train_path, sep='\t')
 #val_data = pd.read_csv(val_path, sep='\t')
@@ -115,7 +114,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 10
+patience = 5
 global_step = 0
 
 # Training Loop
