@@ -4,7 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Argument parser for TCR-Epitope prediction model")
     
     # Paths
-    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_config.yaml', help='Path to configuration file')
+    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_1024_config.yaml', help='Path to configuration file')
     parser.add_argument('--train', type=str, help='Path to training dataset')
     parser.add_argument('--val', type=str, help='Path to validation dataset')
     parser.add_argument('--test', type=str, help='Path to testing dataset')

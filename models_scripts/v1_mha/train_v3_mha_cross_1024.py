@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v3_mha_cross_1024 import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v3_mha_cross_1024 import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args

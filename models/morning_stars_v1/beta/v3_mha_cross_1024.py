@@ -28,13 +28,14 @@ class CrossAttentionBlock(nn.Module):
         self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
         self.norm = nn.LayerNorm(embed_dim)
 
-    def forward(self, q, k, v):
+    def forward(self, q, k, v, key_padding_mask=None):
         q_norm = self.norm(q)
         k_norm = self.norm(k)
         v_norm = self.norm(v)
-        attn_output, _ = self.attn(q_norm.permute(1, 0, 2), k_norm.permute(1, 0, 2), v_norm.permute(1, 0, 2))
+        attn_output, _ = self.attn(q_norm.permute(1, 0, 2), k_norm.permute(1, 0, 2), v_norm.permute(1, 0, 2), key_padding_mask=key_padding_mask)
         return attn_output.permute(1, 0, 2)
 
+# Custom Dataset class to handle lazy-loaded embeddings
 class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
     def __init__(self, data_frame, tcr_embeddings, epitope_embeddings):
         """
@@ -66,7 +67,6 @@ class LazyTCR_Epitope_Dataset(torch.utils.data.Dataset):
             torch.tensor(label, dtype=torch.float32),
         )
 
-
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_tcr_length, max_epitope_length, dropout=0.1):
         super(TCR_Epitope_Transformer, self).__init__()
@@ -81,20 +81,43 @@ class TCR_Epitope_Transformer(nn.Module):
         
         self.output_layer = nn.Linear(embed_dim, 1)
 
-    def forward(self, tcr, epitope):
-        tcr = self.tcr_embedding(tcr) + self.tcr_positional_encoding[:, :tcr.size(1), :]
-        epitope = self.epitope_embedding(epitope) + self.epitope_positional_encoding[:, :epitope.size(1), :]
-        
-        for layer in self.tcr_self_attention:
-            tcr = layer(tcr)
-        
-        for layer in self.epitope_self_attention:
-            epitope = layer(epitope)
-        
-        tcr = self.cross_attention(tcr, epitope, epitope)
-        epitope = self.cross_attention(epitope, tcr, tcr)
-        
-        combined = torch.cat((tcr, epitope), dim=1).mean(dim=1)
-        output = self.output_layer(combined).squeeze(1)
-        return output
+    def forward(self, tcr, epitope, tcr_mask=None, epitope_mask=None):
 
+        # Compute embeddings
+        tcr_embedded = self.tcr_embedding(tcr)
+        epitope_embedded = self.epitope_embedding(epitope)
+
+        # Create key padding mask BEFORE adding positional encodings
+        tcr_mask = (tcr.sum(dim=-1) == 0)  # Mask positions where TCR values are zero
+        epitope_mask = (epitope.sum(dim=-1) == 0)  # Mask positions where epitope values are zero
+
+        # Add positional encodings
+        tcr = tcr_embedded + self.tcr_positional_encoding[:, :tcr_embedded.size(1), :]
+        epitope = epitope_embedded + self.epitope_positional_encoding[:, :epitope_embedded.size(1), :]
+
+
+        # tcr = self.tcr_embedding(tcr) + self.tcr_positional_encoding[:, :tcr.size(1), :]
+        # epitope = self.epitope_embedding(epitope) + self.epitope_positional_encoding[:, :epitope.size(1), :]
+        
+        # for layer in self.tcr_self_attention:
+        #     tcr = layer(tcr, key_padding_mask=tcr_mask)
+        
+        # for layer in self.epitope_self_attention:
+        #     epitope = layer(epitope, key_padding_mask=epitope_mask)
+        
+        
+        # Concatenate TCR and epitope along the sequence length dimension
+        combined = torch.cat((tcr, epitope), dim=1)
+        key_padding_mask = torch.cat((tcr_mask, epitope_mask), dim=1)  # Combine TCR and epitope masks
+
+        for layer in self.tcr_self_attention:
+            combined = layer(combined, key_padding_mask=key_padding_mask)
+
+        tcr = self.cross_attention(tcr, epitope, epitope, key_padding_mask=epitope_mask)
+        epitope = self.cross_attention(epitope, tcr, tcr, key_padding_mask=tcr_mask)
+
+
+        combined_2 = torch.cat((tcr, epitope), dim=1)
+        combined_3 = torch.cat((combined, combined_2), dim=1).mean(dim=1)
+        output = self.output_layer(combined_3).squeeze(1)
+        return output
