@@ -89,6 +89,10 @@ class TCR_Epitope_Transformer(nn.Module):
         tcr_embedded = self.tcr_embedding(tcr)
         epitope_embedded = self.epitope_embedding(epitope)
 
+        # # just for experiment no_positional_encoding
+        # tcr = self.tcr_embedding(tcr)
+        # epitope = self.epitope_embedding(epitope)
+
         # Create key padding mask BEFORE adding positional encodings
         tcr_mask = (tcr.sum(dim=-1) == 0)  # Mask positions where TCR values are zero
         epitope_mask = (epitope.sum(dim=-1) == 0)  # Mask positions where epitope values are zero
