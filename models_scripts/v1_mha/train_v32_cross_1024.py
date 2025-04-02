@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v3_mha_cross_1024 import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v32_cross_1024 import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -48,9 +48,9 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v1_mha"
+MODEL_NAME = "v32_cross"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
+run_name = f"Run_{os.path.basename(model_path).replace('.pth', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Embeddings paths from config/args
@@ -114,7 +114,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 5
+patience = 8
 global_step = 0
 
 # Training Loop
@@ -218,7 +218,7 @@ for epoch in range(epochs):
         y_true=all_labels,
         preds=all_preds,
         class_names=["Not Binding", "Binding"])
-    }, step=global_step)
+    })
     
     # Early Stopping Check
     if auc > best_auc:
