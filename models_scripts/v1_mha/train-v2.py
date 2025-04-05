@@ -3,9 +3,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, precision_recall_curve
+from torch.utils.data import DataLoader, Subset
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, precision_recall_curve, roc_curve
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import sys
@@ -13,11 +14,12 @@ import yaml
 import h5py
 import wandb
 from dotenv import load_dotenv
+import random
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v2_mha import TCR_Epitope_Transformer, TCR_Epitope_Dataset, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v2_multimodal import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -47,7 +49,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v2_mha"
+MODEL_NAME = "v2_multimodal"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -108,13 +110,37 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, trbv_dict, trbj_dict, mhc_dict)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, trbv_dict, trbj_dict, mhc_dict)
 
+class BalancedBatchGenerator:
+    def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
+        self.full_dataset = full_dataset
+        self.labels = np.array(labels)
+        self.batch_size = batch_size
+        self.pos_neg_ratio = pos_neg_ratio
+
+        self.positive_indices = np.where(self.labels == 1)[0]
+        self.negative_indices = np.where(self.labels == 0)[0]
+
+    def get_loader(self):
+        num_pos = len(self.positive_indices)
+        num_neg = num_pos * self.pos_neg_ratio
+
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False)
+        combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
+        np.random.shuffle(combined_indices)
+
+        subset = Subset(self.full_dataset, combined_indices)
+        loader = DataLoader(subset, batch_size=self.batch_size, shuffle=True)
+        return loader
+
 # Data loaders
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+train_labels = train_data['Binding'].values 
+balanced_generator = BalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=1)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 num_trbv = train_data['TRBV'].nunique()
 num_trbj = train_data['TRBJ'].nunique()
 num_mhc = train_data['MHC'].nunique()
+num_tasks = train_data['task'].nunique()
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,15 +154,10 @@ model = TCR_Epitope_Transformer(
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-<<<<<<< HEAD
-    num_trbv,
-    num_trbj,
-    num_mhc
-=======
     num_trbv=len(trbv_dict),     
     num_trbj=len(trbj_dict),
-    num_mhc=len(mhc_dict)
->>>>>>> 94654f12c31d780adcda8273b594d94ecb205f52
+    num_mhc=len(mhc_dict),
+    num_tasks=len(num_tasks)
 ).to(device)
 
 # Watch model
@@ -170,6 +191,7 @@ for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
+    train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, label, trbv, trbj, mhc, task in train_loader_tqdm:
@@ -217,13 +239,6 @@ for epoch in range(epochs):
     all_outputs = np.array(all_outputs)
     all_tasks = np.array(all_tasks)
 
-    #best threshold
-    precision_arr, recall_arr, thresholds = precision_recall_curve(all_labels, all_outputs)
-    f1_scores = 2 * (precision_arr * recall_arr) / (precision_arr + recall_arr + 1e-8)
-    best_index = np.argmax(f1_scores)
-    best_threshold = thresholds[best_index] if best_index < len(thresholds) else 0.5  
-
-
     # Metrics
     auc = roc_auc_score(all_labels, all_outputs)
     ap = average_precision_score(all_labels, all_outputs)
@@ -233,7 +248,25 @@ for epoch in range(epochs):
     recall = recall_score(all_labels, all_preds)
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}] — Best Threshold: {best_threshold:.4f} | Val AUC: {auc:.4f} | F1: {f1:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
+    print(f"Epoch [{epoch+1}/{epochs}] | Val AUC: {auc:.4f} | F1: {f1:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
+
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(all_labels, all_outputs)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc:.2f})')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend()
+    
+    # Speichern und in wandb loggen
+    os.makedirs("results", exist_ok=True)
+    roc_curve_path = "results/roc_curve.png"
+    plt.savefig(roc_curve_path)
+    wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
+    plt.close()
 
     wandb.log({
     "epoch": epoch + 1,
@@ -249,14 +282,12 @@ for epoch in range(epochs):
     "val_fn": fn,
     "val_precision": precision,
     "val_recall": recall,
-    "val_best_threshold": best_threshold,
     "prediction_distribution": wandb.Histogram(all_outputs),
     "label_distribution": wandb.Histogram(all_labels),
     "val_confusion_matrix": wandb.plot.confusion_matrix(
         y_true=all_labels,
         preds=all_preds,
-        class_names=["Not Binding", "Binding"]
-    )
+        class_names=["Not Binding", "Binding"])
     })
 
     # Per-task analysis
