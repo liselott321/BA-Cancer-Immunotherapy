@@ -19,7 +19,7 @@ import random
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_class import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024_class import HybridTCR_Epitope_Model, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset, TCR_Epitope_Transformer
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -141,7 +141,7 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
+model = HybridTCR_Epitope_Model(
     config['embed_dim'],
     config['num_heads'],
     config['num_layers'],
@@ -186,7 +186,7 @@ for epoch in range(epochs):
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, label in train_loader_tqdm:
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device).float()
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
@@ -209,7 +209,7 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         for tcr, epitope, label in val_loader_tqdm:
-            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device).float()
             output = model(tcr, epitope)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
