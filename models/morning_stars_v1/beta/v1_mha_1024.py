@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import h5py
 
 class AttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout=0.1):
