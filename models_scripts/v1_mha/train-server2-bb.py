@@ -15,6 +15,7 @@ import h5py
 import wandb
 from dotenv import load_dotenv
 import random
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -122,7 +123,7 @@ class BalancedBatchGenerator:
         num_pos = len(self.positive_indices)
         num_neg = num_pos * self.pos_neg_ratio
 
-        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False)
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=True) #damit auch in späteren Epochen noch genügend negative
         combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
         np.random.shuffle(combined_indices)
 
@@ -170,7 +171,8 @@ elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
-
+scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
+    
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
@@ -191,6 +193,7 @@ for epoch in range(epochs):
         output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
@@ -232,6 +235,8 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    scheduler.step(auc)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
