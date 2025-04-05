@@ -19,7 +19,7 @@ import random
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v2_multimodal import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v2_multimodal import TCR_Epitope_Transformer_WithDescriptors, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -42,6 +42,7 @@ train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
+descriptor_path = args.descriptor_path or config["descriptor_embeddings"]
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -76,8 +77,8 @@ data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
 train_file_path = f"{data_dir}/allele/train.tsv"
 val_file_path = f"{data_dir}/allele/validation.tsv"
 
-train_data = pd.read_csv(train_file_path, sep="\t")
-val_data = pd.read_csv(val_file_path, sep="\t")
+train_data = pd.read_csv(train_file_path, sep="\t").reset_index(drop=True)
+val_data = pd.read_csv(val_file_path, sep="\t").reset_index(drop=True)
 
 df_full = pd.concat([train_data, val_data], ignore_index=True)
 # 2. Create lookup dictionaries
@@ -105,10 +106,11 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+descriptor_data = load_h5_lazy(descriptor_path)
 
 # Create datasets and dataloaders (lazy loading) -------------------------------------
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, trbv_dict, trbj_dict, mhc_dict)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, trbv_dict, trbj_dict, mhc_dict)
+train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, trbv_dict, trbj_dict, mhc_dict, descriptor_path)
+val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, trbv_dict, trbj_dict, mhc_dict, descriptor_path)
 
 class BalancedBatchGenerator:
     def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
@@ -148,16 +150,19 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
+tcr_dim = descriptor_data["tcr_encoded"].shape[1]
+epi_dim = descriptor_data["epi_encoded"].shape[1]
+
+model = TCR_Epitope_Transformer_WithDescriptors(
     config['embed_dim'],
     config['num_heads'],
     config['num_layers'],
-    config['max_tcr_length'],
-    config['max_epitope_length'],
+    tcr_descriptor_dim=tcr_dim,
+    epi_descriptor_dim=epi_dim,
     num_trbv=len(trbv_dict),     
     num_trbj=len(trbj_dict),
     num_mhc=len(mhc_dict),
-    num_tasks=len(num_tasks)
+    num_tasks=num_tasks
 ).to(device)
 
 # Watch model
@@ -194,10 +199,11 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, label, trbv, trbj, mhc, task in train_loader_tqdm:
+    for tcr, epitope, tcr_desc, epi_desc, label, trbv, trbj, mhc, task in train_loader_tqdm:
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+        tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
         trbv, trbj, mhc = trbv.to(device), trbj.to(device), mhc.to(device)    
-        output = model(tcr, epitope, trbv, trbj, mhc)
+        output = model(tcr, epitope, trbv, trbj, mhc, tcr_desc, epi_desc, task)
         loss = criterion(output, label)
         loss.backward()
         optimizer.step()
@@ -218,10 +224,11 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, label, trbv, trbj, mhc, task in val_loader_tqdm:
+        for tcr, epitope, tcr_desc, epi_desc, label, trbv, trbj, mhc, task in val_loader_tqdm:
             tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+            tcr_desc, epi_desc = tcr_desc.to(device), epi_desc.to(device)
             trbv, trbj, mhc = trbv.to(device), trbj.to(device), mhc.to(device)
-            output = model(tcr, epitope, trbv, trbj, mhc)
+            output = model(tcr, epitope, trbv, trbj, mhc, tcr_desc, epi_desc, task)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
             # Convert logits to probabilities and predictions
@@ -319,7 +326,7 @@ for epoch in range(epochs):
 
 # Save best model --------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v2_mha", exist_ok=True)
+    os.makedirs("results/trained_models/v2_multimodal", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AUC:", best_auc)
     artifact = wandb.Artifact(run_name + "_model", type="model")
