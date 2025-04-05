@@ -34,30 +34,34 @@ class LazyTCR_Epitope_Descriptor_Dataset(Dataset):
         return len(self.data_frame)
         
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
+        row = self.data_frame.iloc[idx]
         tcr_embed = self.tcr_emb[row["TRB_CDR3"]][:]
         epi_embed = self.epi_emb[row["Epitope"]][:]
-        tcr_desc = self.desc_data["tcr_encoded"][idx]
-        epi_desc = self.desc_data["epi_encoded"][idx]
+        tcr_desc = self.desc_data["tcr_encoded"][row.name]
+        epi_desc = self.desc_data["epi_encoded"][row.name]
         label = row['Binding']
         task = row['task']
-    
+        
         trbv = self.trbv_dict.get(row['TRBV'], 0)
         trbj = self.trbj_dict.get(row['TRBJ'], 0)
         mhc = self.mhc_dict.get(row['MHC'], 0)
-
+    
         if row["TRBV"] not in self.trbv_dict:
             print(f"Fehlender TRBV: {row['TRBV']}")
     
+        # Dann zurückgeben
         return (
             torch.tensor(tcr_embed, dtype=torch.float32),
             torch.tensor(epi_embed, dtype=torch.float32),
+            torch.tensor(tcr_desc, dtype=torch.float32),
+            torch.tensor(epi_desc, dtype=torch.float32),
             torch.tensor(label, dtype=torch.float32),
             torch.tensor(trbv, dtype=torch.long),
             torch.tensor(trbj, dtype=torch.long),
             torch.tensor(mhc, dtype=torch.long),
             task
         )
+
         
 class TCR_Epitope_Transformer_WithDescriptors(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, tcr_descriptor_dim, epi_descriptor_dim,
@@ -110,7 +114,7 @@ class TCR_Epitope_Transformer_WithDescriptors(nn.Module):
             nn.Linear(64, 1)
         )
 
-    def forward(self, tcr_embed, epi_embed, tcr_desc, epi_desc, trbv, trbj, mhc):
+    def forward(self, tcr_embed, epi_embed, tcr_desc, epi_desc, trbv, trbj, mhc, task):
         # 1. Embedding-Projektionen
         tcr_seq = self.protbert_tcr(tcr_embed)  # [B, L, D]
         epi_seq = self.protbert_epi(epi_embed)  # [B, L, D]
