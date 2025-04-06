@@ -303,13 +303,13 @@ for epoch in range(epochs):
     
 
     # Early Stopping Check
-    if auc > best_ap:
-        best_ap = auc
+    if ap > best_ap:
+        best_ap = ap
         best_model_state = model.state_dict()
         early_stop_counter = 0
     else:
         early_stop_counter += 1
-        print(f"No improvement in AUC. Early stop counter: {early_stop_counter}/{patience}")
+        print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
@@ -318,7 +318,7 @@ for epoch in range(epochs):
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
-    print("Best model saved with AUC:", best_ap)
+    print("Best model saved with AP:", best_ap)
 
     artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)

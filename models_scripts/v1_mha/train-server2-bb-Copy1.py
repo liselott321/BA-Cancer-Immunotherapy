@@ -123,7 +123,7 @@ class BalancedBatchGenerator:
         num_pos = len(self.positive_indices)
         num_neg = num_pos * self.pos_neg_ratio
 
-        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=True) #damit auch in späteren Epochen noch genügend negative
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False) 
         combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
         np.random.shuffle(combined_indices)
 
@@ -234,7 +234,7 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
-    scheduler.step(auc)
+    scheduler.step(ap)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
     # Confusion matrix components
@@ -287,13 +287,13 @@ for epoch in range(epochs):
     
 
     # Early Stopping Check
-    if auc > best_ap:
-        best_ap = auc
+    if ap > best_ap:
+        best_ap = ap
         best_model_state = model.state_dict()
         early_stop_counter = 0
     else:
         early_stop_counter += 1
-        print(f"No improvement in AUC. Early stop counter: {early_stop_counter}/{patience}")
+        print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
@@ -302,7 +302,7 @@ for epoch in range(epochs):
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
-    print("Best model saved with AUC:", best_ap)
+    print("Best model saved with AP:", best_ap)
 
     artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
