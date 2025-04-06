@@ -176,7 +176,7 @@ else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
     
-best_auc = 0.0
+best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 patience = 4
@@ -303,8 +303,8 @@ for epoch in range(epochs):
     
 
     # Early Stopping Check
-    if auc > best_auc:
-        best_auc = auc
+    if auc > best_ap:
+        best_ap = auc
         best_model_state = model.state_dict()
         early_stop_counter = 0
     else:
@@ -318,7 +318,7 @@ for epoch in range(epochs):
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
-    print("Best model saved with AUC:", best_auc)
+    print("Best model saved with AUC:", best_ap)
 
     artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
