@@ -15,11 +15,12 @@ import h5py
 import wandb
 from dotenv import load_dotenv
 import random
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_class import HybridTCR_Epitope_Model, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset, TCR_Epitope_Transformer
+from models.morning_stars_v1.beta.v1_mha_1024 import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -49,7 +50,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v1_mha-res"
+MODEL_NAME = "v1_mha-bb"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -122,7 +123,7 @@ class BalancedBatchGenerator:
         num_pos = len(self.positive_indices)
         num_neg = num_pos * self.pos_neg_ratio
 
-        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False)
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=True) #damit auch in späteren Epochen noch genügend negative
         combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
         np.random.shuffle(combined_indices)
 
@@ -141,14 +142,13 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = HybridTCR_Epitope_Model(
+model = TCR_Epitope_Transformer(
     config['embed_dim'],
     config['num_heads'],
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
+    dropout=config.get('dropout', 0.1)
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
@@ -170,7 +170,8 @@ elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
-
+scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
+    
 best_auc = 0.0
 best_model_state = None
 early_stop_counter = 0
@@ -186,11 +187,12 @@ for epoch in range(epochs):
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, label in train_loader_tqdm:
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device).float()
+        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
@@ -209,7 +211,7 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         for tcr, epitope, label in val_loader_tqdm:
-            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device).float()
+            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
             output = model(tcr, epitope)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
@@ -232,6 +234,8 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    scheduler.step(auc)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
