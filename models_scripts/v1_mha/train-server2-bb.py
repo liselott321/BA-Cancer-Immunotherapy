@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -123,7 +123,7 @@ class BalancedBatchGenerator:
         num_pos = len(self.positive_indices)
         num_neg = num_pos * self.pos_neg_ratio
 
-        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=True) #damit auch in späteren Epochen noch genügend negative
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False) #evtl nochmals test mit True
         combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
         np.random.shuffle(combined_indices)
 
@@ -155,7 +155,10 @@ model = TCR_Epitope_Transformer(
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
-criterion = nn.BCEWithLogitsLoss()
+pos_count = (train_labels == 1).sum()
+neg_count = (train_labels == 0).sum()
+pos_weight = torch.tensor([neg_count / pos_count]).to(device)
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -173,7 +176,7 @@ else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
     
-best_auc = 0.0
+best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 patience = 4
@@ -225,9 +228,21 @@ for epoch in range(epochs):
             all_outputs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
 
+    precision_curve, recall_curve, thresholds = precision_recall_curve(all_labels, all_outputs)
+    # F1 Score berechnen für alle Thresholds
+    f1_scores = 2 * (precision_curve * recall_curve) / (precision_curve + recall_curve + 1e-8)
+    best_threshold = thresholds[np.argmax(f1_scores)]
+    best_f1 = np.max(f1_scores)
+    
+    print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    
+    # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
+    preds = (all_outputs > best_threshold).astype(float)
+    
     # Convert to NumPy arrays for metric calculations
     all_labels = np.array(all_labels)
-    all_preds = np.array(all_preds)
+    all_preds = np.array(preds)
     all_outputs = np.array(all_outputs)
 
     # Metrics
@@ -288,13 +303,13 @@ for epoch in range(epochs):
     
 
     # Early Stopping Check
-    if auc > best_auc:
-        best_auc = auc
+    if ap > best_ap:
+        best_ap = ap
         best_model_state = model.state_dict()
         early_stop_counter = 0
     else:
         early_stop_counter += 1
-        print(f"No improvement in AUC. Early stop counter: {early_stop_counter}/{patience}")
+        print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
@@ -303,7 +318,7 @@ for epoch in range(epochs):
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
-    print("Best model saved with AUC:", best_auc)
+    print("Best model saved with AP:", best_ap)
 
     artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
