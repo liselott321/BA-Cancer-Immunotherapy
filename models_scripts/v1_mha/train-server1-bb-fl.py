@@ -155,10 +155,29 @@ model = TCR_Epitope_Transformer(
 wandb.watch(model, log="all", log_freq=100)
 
 # Loss
-pos_count = (train_labels == 1).sum()
-neg_count = (train_labels == 0).sum()
-pos_weight = torch.tensor([neg_count / pos_count]).to(device)
-criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        probs = torch.sigmoid(inputs)
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma
+        loss = focal_weight * bce_loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
