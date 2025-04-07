@@ -59,13 +59,17 @@ model = TCR_Epitope_Transformer(
 print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
-latest_run = sorted(runs, key=lambda r: r.created_at, reverse=True)[0]
-model_artifacts = [a for a in latest_run.logged_artifacts() if a.type == "model"]
-assert model_artifacts, "Kein Modell-Artefakt gefunden."
-model_file = os.path.join(model_artifacts[-1].download(), os.listdir(model_artifacts[-1].download())[0])
+# Direktes Laden über bekannten Namen
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v6" #anpassen, wenn andere version latest
+artifact = wandb.Api().artifact(artifact_name, type="model")
+artifact_dir = artifact.download()
+model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
+
+# Gewichte ins Modell laden
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
-print(f"Modell geladen von Run: {latest_run.name}")
+print("✅ Modell geladen:", artifact.name)
+
 
 # Testdurchlauf
 all_labels, all_outputs, all_preds = [], [], []
