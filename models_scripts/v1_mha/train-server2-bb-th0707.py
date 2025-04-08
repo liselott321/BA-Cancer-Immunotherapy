@@ -222,15 +222,27 @@ for epoch in range(epochs):
 
             # Convert logits to probabilities and predictions
             probs = torch.sigmoid(output)
-            preds = (probs > 0.5).float()
+            preds = (probs > 0.707).float()
 
             all_labels.extend(label.cpu().numpy())
             all_outputs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
 
+    precision_curve, recall_curve, thresholds = precision_recall_curve(all_labels, all_outputs)
+    # F1 Score berechnen für alle Thresholds
+    f1_scores = 2 * (precision_curve * recall_curve) / (precision_curve + recall_curve + 1e-8)
+    best_threshold = thresholds[np.argmax(f1_scores)]
+    best_f1 = np.max(f1_scores)
+    
+    print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    
+    # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
+    preds = (all_outputs > best_threshold).astype(float)
+    
     # Convert to NumPy arrays for metric calculations
     all_labels = np.array(all_labels)
-    all_preds = np.array(all_preds)
+    all_preds = np.array(preds)
     all_outputs = np.array(all_outputs)
 
     # Metrics
@@ -304,7 +316,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v1_mha_res", exist_ok=True)
+    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
