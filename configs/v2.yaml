@@ -1,6 +1,6 @@
 epochs: 35
 batch_size: 128
-learning_rate: 0.001
+learning_rate: 0.0005
 embed_dim: 256
 dropout: 0.2
 num_heads: 8
