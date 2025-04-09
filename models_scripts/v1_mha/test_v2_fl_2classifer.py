@@ -1,0 +1,205 @@
+import os
+import numpy as np
+import pandas as pd
+import torch
+import h5py
+import yaml
+import sys
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, average_precision_score, precision_score, recall_score, confusion_matrix
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import wandb
+import seaborn as sns
+import matplotlib.pyplot as plt
+import io
+
+# Local imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+from models.morning_stars_v1.beta.v2_mha_1024_res_more_features import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from utils.arg_parser import parse_args
+
+# ========== Load config and args ==========
+args = parse_args()
+with open(args.configs_path, "r") as file:
+    config = yaml.safe_load(file)
+
+# ========== Init wandb ==========
+run = wandb.init(
+    project="dataset-allele",
+    entity="ba_cancerimmunotherapy",
+    job_type="test_model",
+    name="Test_Run_v1_mha",
+    config=config
+)
+
+# ========== Download dataset (test.tsv) from W&B ==========
+dataset_name = "beta_allele"
+artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest", type="dataset")
+data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
+test_path = f"{data_dir}/allele/test.tsv"
+train_file_path = f"{data_dir}/allele/train.tsv"
+
+# ========== Download model from wandb ==========
+model_artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v9"
+model_artifact = wandb.Api().artifact(model_artifact_name, type="model")
+model_dir = model_artifact.download()
+model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
+
+# ========== Load test data ==========
+print(f" Lade Testdaten: {test_path}")
+test_data = pd.read_csv(test_path, sep="\t")
+train_data = pd.read_csv(train_file_path, sep="\t")
+
+# ========== Load vocab from training ==========
+trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
+trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
+mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
+UNKNOWN_TRBV_IDX = len(trbv_dict)
+UNKNOWN_TRBJ_IDX = len(trbj_dict)
+UNKNOWN_MHC_IDX  = len(mhc_dict)
+
+# Apply mapping to test data
+test_data["TRBV_Index"] = test_data["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
+test_data["TRBJ_Index"] = test_data["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
+test_data["MHC_Index"]  = test_data["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
+
+# ========== TPP1–TPP4 Klassifikation ==========
+train_data["tcr_key"] = train_data["TRB_CDR3"]
+test_data["tcr_key"] = test_data["TRB_CDR3"]
+seen_epitopes = set(train_data["Epitope"])
+seen_tcrs = set(train_data["tcr_key"])
+
+def assign_tpp(row):
+    epitope_known = row["Epitope"] in seen_epitopes
+    tcr_known = row["tcr_key"] in seen_tcrs
+    if epitope_known and tcr_known:
+        return "TPP1"
+    elif epitope_known and not tcr_known:
+        return "TPP2"
+    elif not epitope_known and not tcr_known:
+        return "TPP3"
+    elif not epitope_known and tcr_known:
+        return "TPP4"
+test_data["task"] = test_data.apply(assign_tpp, axis=1)
+
+# ========== Load embeddings lazily ==========
+def load_h5_lazy(fp): return h5py.File(fp, 'r')
+tcr_test_path = config['embeddings']['tcr_test']
+epitope_test_path = config['embeddings']['epitope_test']
+tcr_embeddings = load_h5_lazy(tcr_test_path)
+epitope_embeddings = load_h5_lazy(epitope_test_path)
+
+# Dataset & Dataloader
+dataset = LazyTCR_Epitope_Dataset(test_data, tcr_embeddings, epitope_embeddings,
+                                  trbv_dict, trbj_dict, mhc_dict)
+loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=False)
+
+# ========== Model Setup ==========
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = TCR_Epitope_Transformer(
+    embed_dim=config["embed_dim"],
+    num_heads=config["num_heads"],
+    num_layers=config["num_layers"],
+    max_tcr_length=config["max_tcr_length"],
+    max_epitope_length=config["max_epitope_length"],
+    dropout=config.get("dropout", 0.1),
+    classifier_hidden_dim=config.get("classifier_hidden_dim", 64),
+    trbv_vocab_size=UNKNOWN_TRBV_IDX + 1,
+    trbj_vocab_size=UNKNOWN_TRBJ_IDX + 1,
+    mhc_vocab_size=UNKNOWN_MHC_IDX + 1
+).to(device)
+
+model.load_state_dict(torch.load(model_file, map_location=device))
+model.eval()
+print(f" Modell geladen von: {model_artifact.name}")
+
+# ========== Evaluate ==========
+all_labels, all_outputs, all_preds = [], [], []
+all_tasks = test_data["task"].values
+
+with torch.no_grad():
+    for tcr, epitope, trbv, trbj, mhc, label in tqdm(loader, desc="Evaluating"):
+        tcr, epitope = tcr.to(device), epitope.to(device)
+        trbv, trbj, mhc = trbv.to(device), trbj.to(device), mhc.to(device)
+        output = model(tcr, epitope, trbv, trbj, mhc)
+        probs = torch.sigmoid(output)
+        preds = (probs > 0.5).float()
+
+        all_labels.extend(label.cpu().numpy())
+        all_outputs.extend(probs.cpu().numpy())
+        all_preds.extend(preds.cpu().numpy())
+
+# Convert to np arrays
+all_labels = np.array(all_labels)
+all_outputs = np.array(all_outputs)
+all_preds = np.array(all_preds)
+
+# ==== Gesamtmetriken ====
+auc = roc_auc_score(all_labels, all_outputs)
+ap = average_precision_score(all_labels, all_outputs)
+f1 = f1_score(all_labels, all_preds)
+acc = accuracy_score(all_labels, all_preds)
+precision = precision_score(all_labels, all_preds)
+recall = recall_score(all_labels, all_preds)
+
+print("\n Gesamtauswertung:")
+print(f"AUC:  {auc:.4f}")
+print(f"AP:   {ap:.4f}")
+print(f"F1:   {f1:.4f}")
+print(f"Acc:  {acc:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall:    {recall:.4f}")
+
+# ==== W&B Logging ====
+wandb.log({
+    "test_auc": auc,
+    "test_ap": ap,
+    "test_f1": f1,
+    "test_accuracy": acc,
+    "test_precision": precision,
+    "test_recall": recall
+})
+
+# ==== TPP1–TPP4 Auswertung ====
+for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+    mask = all_tasks == tpp
+    if mask.sum() > 0:
+        tpp_auc = roc_auc_score(all_labels[mask], all_outputs[mask])
+        tpp_ap = average_precision_score(all_labels[mask], all_outputs[mask])
+        tpp_f1 = f1_score(all_labels[mask], all_preds[mask])
+        tpp_acc = accuracy_score(all_labels[mask], all_preds[mask])
+        tpp_precision = precision_score(all_labels[mask], all_preds[mask])
+        tpp_recall = recall_score(all_labels[mask], all_preds[mask])
+
+        print(f"\n    {tpp} ({mask.sum()} Beispiele)")
+        print(f"AUC:  {tpp_auc:.4f}")
+        print(f"AP:   {tpp_ap:.4f}")
+        print(f"F1:   {tpp_f1:.4f}")
+        print(f"Acc:  {tpp_acc:.4f}")
+        print(f"Precision: {tpp_precision:.4f}")
+        print(f"Recall:    {tpp_recall:.4f}")
+
+        wandb.log({
+            f"{tpp}_auc": tpp_auc,
+            f"{tpp}_ap": tpp_ap,
+            f"{tpp}_f1": tpp_f1,
+            f"{tpp}_accuracy": tpp_acc,
+            f"{tpp}_precision": tpp_precision,
+            f"{tpp}_recall": tpp_recall
+        })
+
+        # Confusion Matrix
+        wandb.log({
+            f"{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
+                y_true=all_labels[mask].astype(int),
+                preds=all_preds[mask].astype(int),
+                class_names=["Not Binding", "Binding"]
+            )
+        })
+
+    else:
+        print(f"\n Keine Beispiele für {tpp}")
+
+# W&B beenden
+wandb.finish()
