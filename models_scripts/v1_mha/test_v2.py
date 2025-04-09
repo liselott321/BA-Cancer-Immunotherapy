@@ -51,6 +51,12 @@ print(f" Lade Testdaten: {test_path}")
 test_data = pd.read_csv(test_path, sep="\t")
 train_data = pd.read_csv(train_file_path, sep="\t")
 
+# Sicherstellen, dass die 'task'-Spalte aus der Datei kommt
+assert "task" in test_data.columns, "'task'-Spalte fehlt im test.tsv"
+print("\n TPP-Verteilung im Testset (aus Datei):")
+print(test_data["task"].value_counts())
+
+
 # ========== Load vocab from training ==========
 trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
 trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
@@ -64,24 +70,6 @@ test_data["TRBV_Index"] = test_data["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_I
 test_data["TRBJ_Index"] = test_data["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
 test_data["MHC_Index"]  = test_data["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
 
-# ========== TPP1–TPP4 Klassifikation ==========
-train_data["tcr_key"] = train_data["TRB_CDR3"]
-test_data["tcr_key"] = test_data["TRB_CDR3"]
-seen_epitopes = set(train_data["Epitope"])
-seen_tcrs = set(train_data["tcr_key"])
-
-def assign_tpp(row):
-    epitope_known = row["Epitope"] in seen_epitopes
-    tcr_known = row["tcr_key"] in seen_tcrs
-    if epitope_known and tcr_known:
-        return "TPP1"
-    elif epitope_known and not tcr_known:
-        return "TPP2"
-    elif not epitope_known and not tcr_known:
-        return "TPP3"
-    elif not epitope_known and tcr_known:
-        return "TPP4"
-test_data["task"] = test_data.apply(assign_tpp, axis=1)
 
 # ========== Load embeddings lazily ==========
 def load_h5_lazy(fp): return h5py.File(fp, 'r')
@@ -162,6 +150,7 @@ wandb.log({
 })
 
 # ==== TPP1–TPP4 Auswertung ====
+all_tasks = test_data["task"].values
 for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
     mask = all_tasks == tpp
     if mask.sum() > 0:
