@@ -10,6 +10,8 @@ import h5py
 import wandb
 import yaml
 import sys
+import seaborn as sns
+import io
 
 # Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
