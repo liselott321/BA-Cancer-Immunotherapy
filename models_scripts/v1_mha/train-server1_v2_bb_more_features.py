@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -329,6 +329,67 @@ for epoch in range(epochs):
         preds=all_preds,
         class_names=["Not Binding", "Binding"])
     })
+
+    # ===== TPP1–TPP4 Auswertung im Validierungsset =====
+    if "task" in val_data.columns:
+        all_tasks = val_data["task"].values
+
+        for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+            mask = all_tasks == tpp
+            if mask.sum() > 0:
+                labels = all_labels[mask]
+                outputs = all_outputs[mask]
+                preds = all_preds[mask]
+
+                unique_classes = np.unique(labels)
+
+                if len(unique_classes) == 2:
+                    tpp_auc = roc_auc_score(labels, outputs)
+                    tpp_ap = average_precision_score(labels, outputs)
+                else:
+                    tpp_auc = None
+                    tpp_ap = None
+                    print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
+
+                tpp_f1 = f1_score(labels, preds, zero_division=0)
+                tpp_acc = accuracy_score(labels, preds)
+                tpp_precision = precision_score(labels, preds, zero_division=0)
+                tpp_recall = recall_score(labels, preds, zero_division=0)
+
+                print(f"\n    {tpp} ({mask.sum()} Beispiele)")
+                print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
+                print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
+                print(f"F1:   {tpp_f1:.4f}")
+                print(f"Acc:  {tpp_acc:.4f}")
+                print(f"Precision: {tpp_precision:.4f}")
+                print(f"Recall:    {tpp_recall:.4f}")
+
+                log_dict = {
+                    f"val_{tpp}_f1": tpp_f1,
+                    f"val_{tpp}_accuracy": tpp_acc,
+                    f"val_{tpp}_precision": tpp_precision,
+                    f"val_{tpp}_recall": tpp_recall,
+                }
+                if tpp_auc is not None:
+                    log_dict[f"val_{tpp}_auc"] = tpp_auc
+                if tpp_ap is not None:
+                    log_dict[f"val_{tpp}_ap"] = tpp_ap
+
+                wandb.log(log_dict, step=global_step)
+
+                wandb.log({
+                    f"val_{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
+                        y_true=labels.astype(int),
+                        preds=preds.astype(int),
+                        class_names=["Not Binding", "Binding"],
+                        title=f"Confusion Matrix – {tpp}"
+                    )
+                }, step=global_step)
+            else:
+                print(f"\n Keine Beispiele für {tpp} im Validationset.")
+    else:
+        print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
+
     
 
     # Early Stopping Check
