@@ -1,0 +1,132 @@
+digraph TCR_Epitope_Transformer {
+    rankdir=LR;
+    node [shape=box, style=rounded];
+    graph [nodesep=0.15, ranksep=0.3];
+
+    // Inputs
+    {
+        node [shape=oval];
+        TCR_Embedding [label="TCR Embedding\n(1024-dim)"];
+        Epitope_Embedding [label="Epitope Embedding\n(1024-dim)"];
+        TRBV [label="TRBV Index"];
+        TRBJ [label="TRBJ Index"];
+        MHC [label="MHC Index"];
+    }
+
+    // Embedding Layers
+    subgraph cluster_embeddings {
+        label="Embedding Layers";
+        style=dashed;
+        
+        TCR_Linear [label="Linear\n1024→128"];
+        Epitope_Linear [label="Linear\n1024→128"];
+        TRBV_Embed [label="Embedding\n50→128"];
+        TRBJ_Embed [label="Embedding\n20→128"];
+        MHC_Embed [label="Embedding\n100→128"];
+    }
+
+    // Normalization and Positional Encoding
+    subgraph cluster_preprocessing {
+        label="Preprocessing";
+        style=dashed;
+        
+        TCR_BN [label="BatchNorm\n(across sequence)"];
+        Epitope_BN [label="BatchNorm\n(across sequence)"];
+        TCR_Pos [label="Add Positional\nEncoding"];
+        Epitope_Pos [label="Add Positional\nEncoding"];
+    }
+
+    // Transformer Layers
+    subgraph cluster_transformer {
+        label="Transformer Layers";
+        style=dashed;
+        
+        Transformer_Start [label="Concatenated\nTCR+Epitope", shape=ellipse];
+        Transformer_Layer1 [label="AttentionBlock\n(MultiheadAttention+FFN)"];
+        Transformer_Layer2 [label="AttentionBlock\n(MultiheadAttention+FFN)"];
+        Transformer_End [label="Transformer Output", shape=ellipse];
+    }
+
+    // Pooling and Concatenation
+    Pooling [label="Pooling & Concatenation\n(Mean+Max+TRBV+TRBJ+MHC)\nOutput: 640-dim", shape=ellipse];
+
+    // Classifier
+    subgraph cluster_classifier {
+        label="Classifier";
+        style=dashed;
+        
+        Classifier_Linear1 [label="Linear\n640→64"];
+        Classifier_BN [label="BatchNorm"];
+        Classifier_ReLU [label="ReLU"];
+        Classifier_Dropout [label="Dropout"];
+        
+        subgraph cluster_residual {
+            label="ResidualBlock";
+            style=dashed;
+            
+            Res_BN1 [label="BatchNorm"];
+            Res_ReLU1 [label="ReLU"];
+            Res_Linear1 [label="Linear\n64→64"];
+            Res_BN2 [label="BatchNorm"];
+            Res_ReLU2 [label="ReLU"];
+            Res_Dropout [label="Dropout"];
+            Res_Linear2 [label="Linear\n64→64"];
+        }
+        
+        Classifier_Linear2 [label="Linear\n64→1"];
+    }
+
+    // Output
+    Output [label="Binding Prediction", shape=oval];
+
+    // Connections
+    // Input to Embeddings
+    TCR_Embedding -> TCR_Linear;
+    Epitope_Embedding -> Epitope_Linear;
+    TRBV -> TRBV_Embed;
+    TRBJ -> TRBJ_Embed;
+    MHC -> MHC_Embed;
+
+    // Embeddings to Preprocessing
+    TCR_Linear -> TCR_BN;
+    Epitope_Linear -> Epitope_BN;
+    TCR_BN -> TCR_Pos;
+    Epitope_BN -> Epitope_Pos;
+
+    // Preprocessing to Transformer
+    {TCR_Pos; Epitope_Pos} -> Transformer_Start [label="Concatenate"];
+    Transformer_Start -> Transformer_Layer1;
+    Transformer_Layer1 -> Transformer_Layer2 [label="(repeat for num_layers)"];
+    Transformer_Layer2 -> Transformer_End;
+
+    // Transformer to Pooling
+    Transformer_End -> Pooling;
+    {TRBV_Embed; TRBJ_Embed; MHC_Embed} -> Pooling;
+
+    // Pooling to Classifier
+    Pooling -> Classifier_Linear1;
+    Classifier_Linear1 -> Classifier_BN;
+    Classifier_BN -> Classifier_ReLU;
+    Classifier_ReLU -> Classifier_Dropout;
+    Classifier_Dropout -> Res_BN1;
+    
+    // Residual Block
+    Res_BN1 -> Res_ReLU1;
+    Res_ReLU1 -> Res_Linear1;
+    Res_Linear1 -> Res_BN2;
+    Res_BN2 -> Res_ReLU2;
+    Res_ReLU2 -> Res_Dropout;
+    Res_Dropout -> Res_Linear2;
+    Res_Linear2 -> Classifier_Linear2 [label="+ Residual Connection"];
+
+    // Classifier to Output
+    Classifier_Linear2 -> Output;
+
+    // Layout improvements
+    {rank=same; TCR_Embedding; Epitope_Embedding}
+    {rank=same; TRBV; TRBJ; MHC}
+    {rank=same; TCR_Linear; Epitope_Linear}
+    {rank=same; TRBV_Embed; TRBJ_Embed; MHC_Embed}
+    {rank=same; TCR_BN; Epitope_BN}
+    {rank=same; TCR_Pos; Epitope_Pos}
+}
