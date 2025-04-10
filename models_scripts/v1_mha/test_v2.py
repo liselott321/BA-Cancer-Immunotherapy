@@ -154,41 +154,62 @@ all_tasks = test_data["task"].values
 for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
     mask = all_tasks == tpp
     if mask.sum() > 0:
-        tpp_auc = roc_auc_score(all_labels[mask], all_outputs[mask])
-        tpp_ap = average_precision_score(all_labels[mask], all_outputs[mask])
-        tpp_f1 = f1_score(all_labels[mask], all_preds[mask])
-        tpp_acc = accuracy_score(all_labels[mask], all_preds[mask])
-        tpp_precision = precision_score(all_labels[mask], all_preds[mask])
-        tpp_recall = recall_score(all_labels[mask], all_preds[mask])
+        labels = all_labels[mask]
+        outputs = all_outputs[mask]
+        preds = all_preds[mask]
+
+        unique_classes = np.unique(labels)
+
+        # Nur wenn beide Klassen vorhanden sind
+        if len(unique_classes) == 2:
+            tpp_auc = roc_auc_score(labels, outputs)
+            tpp_ap = average_precision_score(labels, outputs)
+        else:
+            tpp_auc = None
+            tpp_ap = None
+            print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
+
+        # Diese Metriken funktionieren auch bei einer Klasse
+        tpp_f1 = f1_score(labels, preds, zero_division=0)
+        tpp_acc = accuracy_score(labels, preds)
+        tpp_precision = precision_score(labels, preds, zero_division=0)
+        tpp_recall = recall_score(labels, preds, zero_division=0)
 
         print(f"\n    {tpp} ({mask.sum()} Beispiele)")
-        print(f"AUC:  {tpp_auc:.4f}")
-        print(f"AP:   {tpp_ap:.4f}")
+        print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
+        print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
         print(f"F1:   {tpp_f1:.4f}")
         print(f"Acc:  {tpp_acc:.4f}")
         print(f"Precision: {tpp_precision:.4f}")
         print(f"Recall:    {tpp_recall:.4f}")
 
-        wandb.log({
-            f"{tpp}_auc": tpp_auc,
-            f"{tpp}_ap": tpp_ap,
+        # Logging
+        log_dict = {
             f"{tpp}_f1": tpp_f1,
             f"{tpp}_accuracy": tpp_acc,
             f"{tpp}_precision": tpp_precision,
-            f"{tpp}_recall": tpp_recall
-        })
+            f"{tpp}_recall": tpp_recall,
+        }
+        if tpp_auc is not None:
+            log_dict[f"{tpp}_auc"] = tpp_auc
+        if tpp_ap is not None:
+            log_dict[f"{tpp}_ap"] = tpp_ap
+
+        wandb.log(log_dict)
 
         # Confusion Matrix
         wandb.log({
             f"{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
-                y_true=all_labels[mask].astype(int),
-                preds=all_preds[mask].astype(int),
-                class_names=["Not Binding", "Binding"]
+                y_true=labels.astype(int),
+                preds=preds.astype(int),
+                class_names=["Not Binding", "Binding"],
+                title=f"Confusion Matrix – {tpp}"
             )
         })
 
     else:
         print(f"\n Keine Beispiele für {tpp}")
+
 
 # W&B beenden
 wandb.finish()
