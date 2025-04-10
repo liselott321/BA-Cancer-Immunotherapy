@@ -337,44 +337,54 @@ for epoch in range(epochs):
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
             mask = all_tasks == tpp
             if mask.sum() > 0:
-                tpp_auc = roc_auc_score(all_labels[mask], all_outputs[mask])
-                tpp_ap = average_precision_score(all_labels[mask], all_outputs[mask])
-                tpp_f1 = f1_score(all_labels[mask], all_preds[mask])
-                tpp_acc = accuracy_score(all_labels[mask], all_preds[mask])
-                tpp_precision = precision_score(all_labels[mask], all_preds[mask])
-                tpp_recall = recall_score(all_labels[mask], all_preds[mask])
+                labels = all_labels[mask]
+                outputs = all_outputs[mask]
+                preds = all_preds[mask]
+
+                unique_classes = np.unique(labels)
+
+                if len(unique_classes) == 2:
+                    tpp_auc = roc_auc_score(labels, outputs)
+                    tpp_ap = average_precision_score(labels, outputs)
+                else:
+                    tpp_auc = None
+                    tpp_ap = None
+                    print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
+
+                tpp_f1 = f1_score(labels, preds, zero_division=0)
+                tpp_acc = accuracy_score(labels, preds)
+                tpp_precision = precision_score(labels, preds, zero_division=0)
+                tpp_recall = recall_score(labels, preds, zero_division=0)
 
                 print(f"\n    {tpp} ({mask.sum()} Beispiele)")
-                print(f"AUC:  {tpp_auc:.4f}")
-                print(f"AP:   {tpp_ap:.4f}")
+                print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
+                print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
-                wandb.log({
-                    f"val_{tpp}_auc": tpp_auc,
-                    f"val_{tpp}_ap": tpp_ap,
+                log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
-                    f"val_{tpp}_recall": tpp_recall
-                }, step=global_step)
+                    f"val_{tpp}_recall": tpp_recall,
+                }
+                if tpp_auc is not None:
+                    log_dict[f"val_{tpp}_auc"] = tpp_auc
+                if tpp_ap is not None:
+                    log_dict[f"val_{tpp}_ap"] = tpp_ap
 
-                # Confusion Matrix
-                cm = confusion_matrix(all_labels[mask], all_preds[mask])
-                fig, ax = plt.subplots()
-                import seaborn as sns
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax)
-                ax.set_xlabel("Predicted")
-                ax.set_ylabel("True")
-                ax.set_title(f"Confusion Matrix - {tpp}")
-                import io
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png')
-                buf.seek(0)
-                wandb.log({f"val_{tpp}_confusion_matrix": wandb.Image(buf)}, step=global_step)
-                plt.close()
+                wandb.log(log_dict, step=global_step)
+
+                wandb.log({
+                    f"val_{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
+                        y_true=labels.astype(int),
+                        preds=preds.astype(int),
+                        class_names=["Not Binding", "Binding"],
+                        title=f"Confusion Matrix – {tpp}"
+                    )
+                }, step=global_step)
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
