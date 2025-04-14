@@ -25,7 +25,7 @@ class Classifier(nn.Module):
             #nn.BatchNorm1d(hidden_dim),
             #nn.ReLU(),
             #nn.Dropout(dropout),
-            ResidualBlock(256, dropout),
+            ResidualBlock(input_dim, dropout),
             nn.Linear(hidden_dim, 1)
         )
 
