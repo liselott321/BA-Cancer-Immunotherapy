@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v2_mha_1024_res_more_features import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024_only_res import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -87,28 +87,6 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-# Mappings erstellen
-trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
-trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
-mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
-
-UNKNOWN_TRBV_IDX = len(trbv_dict)
-UNKNOWN_TRBJ_IDX = len(trbj_dict)
-UNKNOWN_MHC_IDX  = len(mhc_dict)
-
-for df in [train_data, val_data]:
-    df["TRBV_Index"] = df["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
-    df["TRBJ_Index"] = df["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
-    df["MHC_Index"]  = df["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
-
-# Vokabulargrößen bestimmen
-trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
-trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
-mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
-
-print(trbv_vocab_size)
-print(trbj_vocab_size)
-print(mhc_vocab_size)
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
@@ -128,11 +106,8 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings,
-                                        trbv_dict, trbj_dict, mhc_dict)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings,
-                                      trbv_dict, trbj_dict, mhc_dict)
-
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
 class BalancedBatchGenerator:
     def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
@@ -174,12 +149,8 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
-    trbv_vocab_size=trbv_vocab_size,
-    trbj_vocab_size=trbj_vocab_size,
-    mhc_vocab_size=mhc_vocab_size
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
-
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -219,10 +190,10 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, trbv, trbj, mhc, label in train_loader_tqdm:
-        tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
+    for tcr, epitope, label in train_loader_tqdm:
+        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope, trbv, trbj, mhc)
+        output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
@@ -243,9 +214,9 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, trbv, trbj, mhc, label in val_loader_tqdm:
-            tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
-            output = model(tcr, epitope, trbv, trbj, mhc)
+        for tcr, epitope, label in val_loader_tqdm:
+            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+            output = model(tcr, epitope)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -264,7 +235,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=epoch)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -280,7 +251,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=epoch)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -375,7 +346,7 @@ for epoch in range(epochs):
                 if tpp_ap is not None:
                     log_dict[f"val_{tpp}_ap"] = tpp_ap
 
-                wandb.log(log_dict, step=epoch)
+                wandb.log(log_dict, step=global_step, commit=False)
 
                 wandb.log({
                     f"val_{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
@@ -384,12 +355,11 @@ for epoch in range(epochs):
                         class_names=["Not Binding", "Binding"],
                         title=f"Confusion Matrix – {tpp}"
                     )
-                }, step=epoch)
+                }, step=global_step, commit=False)
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
-
     
 
     # Early Stopping Check
