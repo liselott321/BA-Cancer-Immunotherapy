@@ -5,10 +5,10 @@ class ResidualBlock(nn.Module):
     def __init__(self, hidden_dim, dropout):
         super(ResidualBlock, self).__init__()
         self.block = nn.Sequential(
-            nn.BatchNorm1d(input_dim),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(input_dim),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim)
@@ -25,7 +25,7 @@ class Classifier(nn.Module):
             #nn.BatchNorm1d(hidden_dim),
             #nn.ReLU(),
             #nn.Dropout(dropout),
-            ResidualBlock(input_dim, dropout),
+            ResidualBlock(256, dropout),
             nn.Linear(hidden_dim, 1)
         )
 
