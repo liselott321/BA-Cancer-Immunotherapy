@@ -235,7 +235,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -251,7 +251,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -346,7 +346,7 @@ for epoch in range(epochs):
                 if tpp_ap is not None:
                     log_dict[f"val_{tpp}_ap"] = tpp_ap
 
-                wandb.log(log_dict, step=epoch)
+                wandb.log(log_dict, step=global_step, commit=False)
 
                 wandb.log({
                     f"val_{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
@@ -355,7 +355,7 @@ for epoch in range(epochs):
                         class_names=["Not Binding", "Binding"],
                         title=f"Confusion Matrix – {tpp}"
                     )
-                }, step=epoch)
+                }, step=global_step, commit=False)
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
