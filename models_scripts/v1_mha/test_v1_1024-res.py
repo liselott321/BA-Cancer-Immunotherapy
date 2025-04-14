@@ -25,6 +25,15 @@ args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
+# Init wandb run
+run = wandb.init(
+    project="dataset-allele",
+    entity="ba_cancerimmunotherapy",
+    job_type="test_model",
+    name="Test_Run_v1_mha",
+    config=config
+)
+
 # Testdaten und Embedding-Pfade
 test_path = args.test if args.test else config['data_paths']['test']
 tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else config['embeddings']['tcr_test']
@@ -62,7 +71,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v6" #anpassen, wenn andere version latest
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v15" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -109,3 +118,72 @@ print(f"Accuracy:  {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
 print(f"TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+
+wandb.log({
+    "test_auc": auc,
+    "test_ap": ap,
+    "test_f1": f1,
+    "test_accuracy": accuracy,
+    "test_precision": precision,
+    "test_recall": recall
+})
+
+# TPP1–TPP4 Auswertung
+if "task" in test_data.columns:
+    all_tasks = test_data["task"].values
+    for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+        mask = all_tasks == tpp
+        if mask.sum() > 0:
+            labels = all_labels[mask]
+            outputs = all_outputs[mask]
+            preds = all_preds[mask]
+
+            unique_classes = np.unique(labels)
+
+            # AUC/AP nur, wenn beide Klassen vorkommen
+            tpp_auc = roc_auc_score(labels, outputs) if len(unique_classes) == 2 else None
+            tpp_ap = average_precision_score(labels, outputs) if len(unique_classes) == 2 else None
+
+            tpp_f1 = f1_score(labels, preds, zero_division=0)
+            tpp_acc = (preds == labels).mean()
+            tpp_precision = precision_score(labels, preds, zero_division=0)
+            tpp_recall = recall_score(labels, preds, zero_division=0)
+
+            print(f"\n{tpp} ({mask.sum()} Beispiele)")
+            print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
+            print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
+            print(f"F1:   {tpp_f1:.4f}")
+            print(f"Acc:  {tpp_acc:.4f}")
+            print(f"Precision: {tpp_precision:.4f}")
+            print(f"Recall:    {tpp_recall:.4f}")
+
+            # Wandb-Logging
+            log_dict = {
+                f"{tpp}_f1": tpp_f1,
+                f"{tpp}_accuracy": tpp_acc,
+                f"{tpp}_precision": tpp_precision,
+                f"{tpp}_recall": tpp_recall,
+            }
+            if tpp_auc is not None:
+                log_dict[f"{tpp}_auc"] = tpp_auc
+            if tpp_ap is not None:
+                log_dict[f"{tpp}_ap"] = tpp_ap
+
+            wandb.log(log_dict)
+
+            # Confusion Matrix loggen
+            wandb.log({
+                f"{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
+                    y_true=labels.astype(int),
+                    preds=preds.astype(int),
+                    class_names=["Not Binding", "Binding"],
+                    title=f"Confusion Matrix – {tpp}"
+                )
+            })
+        else:
+            print(f"\nKeine Beispiele für {tpp}")
+else:
+    print("\nKeine 'task'-Spalte in Testdaten – TPP-Auswertung übersprungen.")
+
+wandb.finish()
+
