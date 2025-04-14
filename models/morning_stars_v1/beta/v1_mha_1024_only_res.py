@@ -2,16 +2,16 @@ import torch
 import torch.nn as nn
 
 class ResidualBlock(nn.Module):
-    def __init__(self, hidden_dim, dropout):
+    def __init__(self, input_dim, dropout):
         super(ResidualBlock, self).__init__()
         self.block = nn.Sequential(
-            nn.BatchNorm1d(256),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(256),
+            nn.Linear(input_dim, input_dim),
+            nn.BatchNorm1d(input_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim)
+            nn.Linear(input_dim, input_dim)
         )
 
     def forward(self, x):
