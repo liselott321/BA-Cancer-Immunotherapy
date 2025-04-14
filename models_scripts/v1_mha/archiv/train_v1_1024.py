@@ -112,10 +112,10 @@ wandb.watch(model, log="all", log_freq=100)
 criterion = nn.BCEWithLogitsLoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-best_auc = 0.0
+best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 10
+patience = 5
 global_step = 0
 
 # Training Loop
@@ -222,13 +222,13 @@ for epoch in range(epochs):
     })
     
     # Early Stopping Check
-    if auc > best_auc:
-        best_auc = auc
+    if ap > best_ap:
+        best_ap = ap
         best_model_state = model.state_dict()
         early_stop_counter = 0
     else:
         early_stop_counter += 1
-        print(f"No improvement in AUC. Early stop counter: {early_stop_counter}/{patience}")
+        print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
@@ -237,7 +237,7 @@ for epoch in range(epochs):
 if best_model_state:
     os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
-    print("Best model saved with AUC:", best_auc)
+    print("Best model saved with AP:", best_ap)
 
     artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
