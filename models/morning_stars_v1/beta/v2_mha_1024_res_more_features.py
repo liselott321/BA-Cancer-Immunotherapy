@@ -10,7 +10,7 @@ class ResidualBlock(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout), # - Nochmals prüfen, ob wirklich notwendig vlt auslassen  
             nn.Linear(hidden_dim, hidden_dim)
         )
 
@@ -37,11 +37,11 @@ class AttentionBlock(nn.Module):
         super(AttentionBlock, self).__init__()
         self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm1 = nn.LayerNorm(embed_dim)
-        self.dropout1 = nn.Dropout(dropout)
+        self.dropout1 = nn.Dropout(dropout) # Im Transformer Dropout ohne versuchen / Sequentiell ja () Anders Paper noch - wie sie es gmacht haben im AB 
         self.ff = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout), 
             nn.Linear(embed_dim * 4, embed_dim)
         )
         self.norm2 = nn.LayerNorm(embed_dim)
@@ -114,9 +114,9 @@ class TCR_Epitope_Transformer(nn.Module):
         self.trbv_embed = nn.Embedding(trbv_vocab_size, embed_dim, padding_idx=trbv_vocab_size - 1)
         self.trbj_embed = nn.Embedding(trbj_vocab_size, embed_dim, padding_idx=trbj_vocab_size - 1)
         self.mhc_embed  = nn.Embedding(mhc_vocab_size,  embed_dim, padding_idx=mhc_vocab_size - 1)
-
-        self.tcr_bn = nn.BatchNorm1d(max_tcr_length)
-        self.epitope_bn = nn.BatchNorm1d(max_epitope_length)
+         
+        self.tcr_bn = nn.BatchNorm1d(max_tcr_length) # Wieso? Nochmals prüfen, ob notwendig -
+        self.epitope_bn = nn.BatchNorm1d(max_epitope_length) # Wieso? Nochmals prüfen, ob notwendig -
 
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
@@ -157,7 +157,7 @@ class TCR_Epitope_Transformer(nn.Module):
             combined = layer(combined, key_padding_mask=key_padding_mask)
 
         # Combine mean and max pooling
-        pooled_mean = combined.mean(dim=1)
+        pooled_mean = combined.mean(dim=1) # Pooling überprüfen, welche bedeutung - EPICTRACE / PAPER mit CODE (Droput, Transformer implementatione und ob pooling) / contactniert oder cross mit pooling infos verloren 
         pooled_max, _ = combined.max(dim=1)
         pooled = torch.cat([pooled_mean, pooled_max, trbv_embed, trbj_embed, mhc_embed], dim=1)
 

@@ -15,7 +15,7 @@ import io
 
 # Local imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from models.morning_stars_v1.beta.v1_mha_1024_more_features import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v2_mha_1024_res_more_features import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
 
@@ -41,7 +41,7 @@ test_path = f"{data_dir}/allele/test.tsv"
 train_file_path = f"{data_dir}/allele/train.tsv"
 
 # ========== Download model from wandb ==========
-model_artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v10"
+model_artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v11"
 model_artifact = wandb.Api().artifact(model_artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
