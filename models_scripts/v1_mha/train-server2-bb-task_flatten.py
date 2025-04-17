@@ -276,7 +276,7 @@ for epoch in range(epochs):
     os.makedirs("results", exist_ok=True)
     roc_curve_path = "results/roc_curve.png"
     plt.savefig(roc_curve_path)
-    wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
+    wandb.log({"roc_curve": wandb.Image(roc_curve_path)}, step=global_step, commit=False)
     plt.close()
 
     wandb.log({
@@ -299,7 +299,7 @@ for epoch in range(epochs):
         y_true=all_labels,
         preds=all_preds,
         class_names=["Not Binding", "Binding"])
-    })
+    }, step=global_step, commit=False)
 
     # ===== TPP1–TPP4 Auswertung im Validierungsset =====
     if "task" in val_data.columns:
