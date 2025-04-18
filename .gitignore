@@ -181,7 +181,11 @@ artifacts/Run_v1_mha_1024h_flattened_model:v2/
 <<<<<<< HEAD
 artifacts/
 results/trained_models/v1_mha/v1_mha_1024.pth
+<<<<<<< HEAD
 artifacts/
 =======
 results/trained_models/v1_mha/v1_mha_1024.pth
 >>>>>>> 1d0d967 (Update .gitignore, remove tracked model weights from Git)
+=======
+results/trained_models/v1_mha/v1_mha_1024.pth
+>>>>>>> 7b469bf (Ensure model weights are ignored)
