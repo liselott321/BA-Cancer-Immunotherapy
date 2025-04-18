@@ -15,7 +15,11 @@ import io
 
 # Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+<<<<<<< HEAD
 from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+=======
+from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+>>>>>>> 1d0d967 (Update .gitignore, remove tracked model weights from Git)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -71,7 +75,11 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
+<<<<<<< HEAD
 artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v3" #anpassen, wenn andere version latest oder v12
+=======
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v2" #anpassen, wenn andere version latest oder v12
+>>>>>>> 1d0d967 (Update .gitignore, remove tracked model weights from Git)
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
