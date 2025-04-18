@@ -176,3 +176,8 @@ wandb
 */*/artifacts
 
 */*/checkpoints
+artifacts/Run_v1_mha_1024h_flattened_model:v1/
+artifacts/Run_v1_mha_1024h_flattened_model:v2/
+artifacts/
+results/trained_models/v1_mha/v1_mha_1024.pth
+artifacts/
