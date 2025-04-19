@@ -88,7 +88,7 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
 
 
 class TCR_Epitope_Transformer(nn.Module):
-    def __init__(self, embed_dim=128, num_heads=4, num_layers=2, max_tcr_length=20, max_epitope_length=15,
+    def __init__(self, embed_dim=128, num_heads=4, num_layers=2, max_tcr_length=43, max_epitope_length=43,
                  dropout=0.1, classifier_hidden_dim=64, physchem_dim=10):
         super(TCR_Epitope_Transformer, self).__init__()
         self.embed_dim = embed_dim
@@ -106,7 +106,7 @@ class TCR_Epitope_Transformer(nn.Module):
         ])
 
         self.physchem_dim = physchem_dim
-        self.classifier_input_dim = embed_dim * 2 + physchem_dim * 2 
+        self.classifier_input_dim = embed_dim * (max_tcr_length + max_epitope_length) + physchem_dim * 2
 
         self.classifier = Classifier(self.classifier_input_dim, classifier_hidden_dim, dropout)
 
@@ -114,7 +114,6 @@ class TCR_Epitope_Transformer(nn.Module):
         tcr_emb = self.tcr_embedding(tcr)
         epitope_emb = self.epitope_embedding(epitope)
     
-        # Optional: normalize across sequence
         tcr_emb = self.tcr_bn(tcr_emb)
         epitope_emb = self.epitope_bn(epitope_emb)
     
@@ -133,14 +132,14 @@ class TCR_Epitope_Transformer(nn.Module):
         for layer in self.transformer_layers:
             combined = layer(combined, key_padding_mask=key_padding_mask)
     
-        # Combine mean and max pooling
-        pooled_mean = combined.mean(dim=1)
-        pooled_max, _ = combined.max(dim=1)
-        pooled = torch.cat([pooled_mean, pooled_max], dim=1)
+        # flattening + classifier
+        flattened = combined.view(combined.size(0), -1)  # [batch_size, total_seq_len * embed_dim]
     
         # Physikochemie anhängen
         if tcr_physchem is not None and epi_physchem is not None:
-            pooled = torch.cat([pooled, tcr_physchem, epi_physchem], dim=1)
+            self.physchem_dim = tcr_physchem.shape[1]
+            flattened = torch.cat([flattened, tcr_physchem, epi_physchem], dim=1)
+            self.classifier_input_dim += self.physchem_dim * 2
     
-        output = self.classifier(pooled).squeeze(1)
+        output = self.classifier(flattened).squeeze(1)
         return output

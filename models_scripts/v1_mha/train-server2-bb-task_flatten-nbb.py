@@ -146,7 +146,7 @@ class ClassBalancedBatchGenerator:
 
 # Data loaders
 train_labels = train_data['Binding'].values
-balanced_generator = ClassBalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=1)
+balanced_generator = ClassBalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=3)
 
 
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -371,6 +371,19 @@ for epoch in range(epochs):
                         title=f"Confusion Matrix – {tpp}"
                     )
                 }, step=global_step, commit=False)
+                # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+                plt.figure(figsize=(6, 4))
+                plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
+                plt.title(f"Prediction Score Distribution – {tpp}")
+                plt.xlabel("Predicted Probability")
+                plt.ylabel("Frequency")
+                plt.tight_layout()
+                
+                # Speicherpfad & Logging
+                plot_path = f"results/{tpp}_confidence_hist_epoch{epoch+1}.png"
+                plt.savefig(plot_path)
+                wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
+                plt.close()
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:

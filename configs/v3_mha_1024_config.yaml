@@ -1,10 +1,10 @@
-epochs: 35
+epochs: 20
 batch_size: 128
 learning_rate: 0.0005
 embed_dim: 128
 dropout: 0.1
-num_heads: 8
-num_layers: 2
+num_heads: 4
+num_layers: 1
 max_tcr_length: 43
 max_epitope_length: 43
 model_path: "results/trained_models/v3_mha/v3_mha_1024_res.pth"
