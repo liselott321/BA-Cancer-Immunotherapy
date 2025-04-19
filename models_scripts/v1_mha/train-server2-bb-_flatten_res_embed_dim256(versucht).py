@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
+from torch.cuda.amp import GradScaler, autocast
 import pandas as pd
 import sys
 import yaml
@@ -169,7 +169,7 @@ num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
 weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
 
 if optimizer_name == "adam":
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
@@ -182,37 +182,61 @@ early_stop_counter = 0
 patience = 4
 global_step = 0
 
+scaler = GradScaler()
+accumulation_steps = 4
+
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
-    correct = 0
-    total = 0
+    correct = 0  # Zähler für korrekte Vorhersagen
+    total = 0    # Zähler für die Gesamtanzahl der Beispiele
 
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, label in train_loader_tqdm:
+    for step, (tcr, epitope, label) in enumerate(train_loader_tqdm):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+
         optimizer.zero_grad()
-        output = model(tcr, epitope)
-        loss = criterion(output, label)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
-        optimizer.step()
+
+        # Mixed Precision: Mit autocast() den Vorwärtsdurchlauf durchführen
+        with autocast():  # Mixed Precision aktiviert
+            output = model(tcr, epitope)
+            loss = criterion(output, label)
+
+        # Backpropagation
+        scaler.scale(loss).backward()  # Skaliere Gradienten
+
+        # Gradient Clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        # Optimierung nur nach jedem `accumulation_steps`-Schritt
+        if (step + 1) % accumulation_steps == 0:
+            scaler.step(optimizer)  # Optimierungsschritt
+            scaler.update()  # Update des GradScaler
+            optimizer.zero_grad()  # Gradienten zurücksetzen
+
         epoch_loss += loss.item()
-        wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+
+        # Berechnung der Accuracy für das aktuelle Batch
+        preds = torch.sigmoid(output) > 0.5
+        correct += (preds == label).sum().item()  # Zähle korrekte Vorhersagen
+        total += label.size(0)  # Gesamtanzahl der Beispiele
+
+        accuracy = correct / total
+
+        # Logge Verlust und Accuracy in wandb
+        wandb.log({"train_loss": loss.item(), "train_accuracy": accuracy, "epoch": epoch}, step=global_step)
+        
         global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
-    # Berechnung der Train Accuracy für die gesamte Epoche
-    train_accuracy = correct / total  # Genauigkeit = Korrekt / Gesamtanzahl
-    print(f"Epoch [{epoch+1}/{epochs}], Train Accuracy: {train_accuracy:.4f}")
-
-    # Loggen der Train Accuracy in wandb
-    wandb.log({"train_accuracy": train_accuracy}, step=epoch)
-
+    print(f"Epoch [{epoch+1}/{epochs}], Train Accuracy: {accuracy:.4f}")
+    
+    # Logge die End-Accuracy der Epoche in wandb
+    wandb.log({"train_accuracy_epoch": accuracy}, step=epoch)
 
     # Validation --------------------------------------------------------------------------------------------------------------
     model.eval()
@@ -309,7 +333,7 @@ for epoch in range(epochs):
         y_true=all_labels,
         preds=all_preds,
         class_names=["Not Binding", "Binding"])
-    }, step=global_step, commit=False)
+    },  step=global_step, commit=False)
 
     # ===== TPP1–TPP4 Auswertung im Validierungsset =====
     if "task" in val_data.columns:
@@ -397,7 +421,6 @@ for epoch in range(epochs):
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
-            
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
