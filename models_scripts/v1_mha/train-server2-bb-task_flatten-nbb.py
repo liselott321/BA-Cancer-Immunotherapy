@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
@@ -16,6 +16,7 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.calibration import calibration_curve
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -354,6 +355,31 @@ for epoch in range(epochs):
         all_tasks = val_data["task"].values
 
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+            
+            class TemperatureScaler(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.temperature = nn.Parameter(torch.ones(1) * 1.0)
+            
+                def forward(self, logits):
+                    return logits / self.temperature
+
+            def fit_temperature(logits, labels, max_iter=500):
+                logits = torch.tensor(logits).float()
+                labels = torch.tensor(labels).float()
+            
+                model = TemperatureScaler()
+                optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
+            
+                def closure():
+                    optimizer.zero_grad()
+                    loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
+                    loss.backward()
+                    return loss
+            
+                optimizer.step(closure)
+                return model.temperature.item()
+
             mask = all_tasks == tpp
             if mask.sum() > 0:
                 labels = all_labels[mask]
@@ -417,6 +443,50 @@ for epoch in range(epochs):
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
+                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
+                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
+                temperature = fit_temperature(raw_logits, labels)
+                scaled_logits = raw_logits / temperature
+                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
+                
+                # Jetzt z. B. neu evaluieren mit scaled_probs
+                scaled_preds = (scaled_probs > 0.5).astype(int)
+                
+                # Neue Metriken mit skalierter Ausgabe
+                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
+                scaled_acc = accuracy_score(labels, scaled_preds)
+                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
+                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
+                
+                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
+                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
+                
+                # Logge es optional nach wandb
+                wandb.log({
+                    f"val_{tpp}_temperature": temperature,
+                    f"val_{tpp}_f1_scaled": scaled_f1,
+                    f"val_{tpp}_accuracy_scaled": scaled_acc,
+                    f"val_{tpp}_precision_scaled": scaled_prec,
+                    f"val_{tpp}_recall_scaled": scaled_rec
+                }, step=global_step, commit=False)
+                # Reliability Diagram (nach dem Scaling!)
+                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
+                
+                plt.figure(figsize=(6, 4))
+                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
+                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
+                plt.xlabel("Predicted Probability (Binned)")
+                plt.ylabel("True Proportion of Positives")
+                plt.title(f"Reliability Diagram – {tpp}")
+                plt.legend()
+                plt.tight_layout()
+                
+                # Speicherpfad & Logging
+                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
+                plt.savefig(plot_path_calib)
+                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
+                plt.close()
+
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
