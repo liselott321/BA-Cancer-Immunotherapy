@@ -74,7 +74,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v5" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v8" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -183,6 +183,20 @@ if "task" in test_data.columns:
                     title=f"Confusion Matrix – {tpp}"
                 )
             })
+            # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+            plt.figure(figsize=(6, 4))
+            plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
+            plt.title(f"Prediction Score Distribution – {tpp}")
+            plt.xlabel("Predicted Probability")
+            plt.ylabel("Frequency")
+            plt.tight_layout()
+            
+            # Speicherpfad & Logging
+            plot_path = f"results/{tpp}_confidence_hist_test.png"
+            os.makedirs("results", exist_ok=True)
+            plt.savefig(plot_path)
+            wandb.log({f"{tpp}_prediction_distribution": wandb.Image(plot_path)})
+            plt.close()
         else:
             print(f"\nKeine Beispiele für {tpp}")
 else:
