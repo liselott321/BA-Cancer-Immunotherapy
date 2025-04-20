@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v2_only_res_noBNpre_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -50,9 +50,9 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v1_mha-res"
+MODEL_NAME = "v2"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}_flattened"
+run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Logge Hyperparameter explizit
@@ -73,9 +73,9 @@ epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddi
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
-# # Load Data -------------------------------------------------------
-# train_data = pd.read_csv(train_path, sep='\t')
-# val_data = pd.read_csv(val_path, sep='\t')
+# Load Data -------------------------------------------------------
+#train_data = pd.read_csv(train_path, sep='\t')
+#val_data = pd.read_csv(val_path, sep='\t')
 
 dataset_name = f"beta_allele"
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
@@ -87,6 +87,28 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
+# Mappings erstellen
+trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
+trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
+mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
+
+UNKNOWN_TRBV_IDX = len(trbv_dict)
+UNKNOWN_TRBJ_IDX = len(trbj_dict)
+UNKNOWN_MHC_IDX  = len(mhc_dict)
+
+for df in [train_data, val_data]:
+    df["TRBV_Index"] = df["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
+    df["TRBJ_Index"] = df["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
+    df["MHC_Index"]  = df["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
+
+# Vokabulargrößen bestimmen
+trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
+trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
+mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
+
+print(trbv_vocab_size)
+print(trbj_vocab_size)
+print(mhc_vocab_size)
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
@@ -106,8 +128,11 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings,
+                                        trbv_dict, trbj_dict, mhc_dict)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings,
+                                      trbv_dict, trbj_dict, mhc_dict)
+
 
 class BalancedBatchGenerator:
     def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
@@ -148,9 +173,13 @@ model = TCR_Epitope_Transformer(
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
+    dropout=config.get('dropout', 0.2), #dropout angepasst
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
+    trbv_vocab_size=trbv_vocab_size,
+    trbj_vocab_size=trbj_vocab_size,
+    mhc_vocab_size=mhc_vocab_size
 ).to(device)
+
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -192,27 +221,32 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, label in train_loader_tqdm:
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+    for tcr, epitope, trbv, trbj, mhc, label in train_loader_tqdm:
+        tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope)
+        output = model(tcr, epitope, trbv, trbj, mhc)
         loss = criterion(output, label)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
+
+        # Berechne die Vorhersagen
+        preds = torch.sigmoid(output) > 0.5
+        correct += (preds == label).sum().item()  # Zähle die richtigen Vorhersagen
+        total += label.size(0)
+
+        accuracy = correct / total  # Berechne die Accuracy
+        
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
         global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
-    # Berechnung der Train Accuracy für die gesamte Epoche
-    train_accuracy = correct / total  # Genauigkeit = Korrekt / Gesamtanzahl
+    # Berechnung der Gesamt-Train-Accuracy für die Epoche
+    train_accuracy = correct / total
     print(f"Epoch [{epoch+1}/{epochs}], Train Accuracy: {train_accuracy:.4f}")
-
-    # Loggen der Train Accuracy in wandb
-    wandb.log({"train_accuracy": train_accuracy}, step=epoch)
-
+    wandb.log({"train_accuracy_epoch": train_accuracy}, step=epoch)
 
     # Validation --------------------------------------------------------------------------------------------------------------
     model.eval()
@@ -224,9 +258,9 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, label in val_loader_tqdm:
-            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-            output = model(tcr, epitope)
+        for tcr, epitope, trbv, trbj, mhc, label in val_loader_tqdm:
+            tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
+            output = model(tcr, epitope, trbv, trbj, mhc)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -366,7 +400,7 @@ for epoch in range(epochs):
                         title=f"Confusion Matrix – {tpp}"
                     )
                 }, step=global_step, commit=False)
-
+                
                 # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
                 plt.figure(figsize=(6, 4))
                 plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
@@ -384,6 +418,7 @@ for epoch in range(epochs):
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
+
     
 
     # Early Stopping Check
@@ -397,7 +432,6 @@ for epoch in range(epochs):
         if early_stop_counter >= patience:
             print("Early stopping triggered.")
             break
-            
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
