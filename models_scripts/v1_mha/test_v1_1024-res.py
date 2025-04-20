@@ -2,7 +2,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, log_loss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,6 +12,7 @@ import yaml
 import sys
 import seaborn as sns
 import io
+from sklearn.calibration import calibration_curve
 
 # Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -112,6 +113,30 @@ precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
 tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
+class TemperatureScaler(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.ones(1) * 1.0)
+
+    def forward(self, logits):
+        return logits / self.temperature
+
+def fit_temperature(logits, labels, max_iter=500):
+    logits = torch.tensor(logits).float()
+    labels = torch.tensor(labels).float()
+
+    model = TemperatureScaler()
+    optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
+
+    def closure():
+        optimizer.zero_grad()
+        loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    return model.temperature.item()
+
 # Ergebnisse
 print("\nTestergebnisse:")
 print(f"AUC:       {auc:.4f}")
@@ -197,6 +222,38 @@ if "task" in test_data.columns:
             plt.savefig(plot_path)
             wandb.log({f"{tpp}_prediction_distribution": wandb.Image(plot_path)})
             plt.close()
+            # Logits rekonstruieren aus Wahrscheinlichkeiten
+            raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
+            temperature = fit_temperature(raw_logits, labels)
+            scaled_logits = raw_logits / temperature
+            scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # sigmoid
+            
+            # Optional: neue Metriken mit scaled_probs (z. B. bei threshold 0.5)
+            scaled_preds = (scaled_probs > 0.5).astype(int)
+            
+            # Logge Temperatur & Reliability Curve
+            wandb.log({
+                f"{tpp}_temperature": temperature,
+                f"{tpp}_scaled_confidence": wandb.Histogram(scaled_probs)
+            })
+            
+            # Reliability Diagram
+            prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
+            
+            plt.figure(figsize=(6, 4))
+            plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
+            plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
+            plt.xlabel("Predicted Probability (Binned)")
+            plt.ylabel("True Proportion of Positives")
+            plt.title(f"Reliability Diagram – {tpp}")
+            plt.legend()
+            plt.tight_layout()
+            
+            path = f"results/{tpp}_reliability_test.png"
+            plt.savefig(path)
+            wandb.log({f"{tpp}_reliability_diagram": wandb.Image(path)})
+            plt.close()
+
         else:
             print(f"\nKeine Beispiele für {tpp}")
 else:
