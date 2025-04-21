@@ -136,9 +136,9 @@ class TCR_Epitope_Transformer(nn.Module):
     def forward(self, tcr, epitope, trbv, trbj, mhc):
         tcr_emb = self.tcr_embedding(tcr)
         epitope_emb = self.epitope_embedding(epitope)
-        trbv_embed = self.trbv_embed(trbv).squeeze(1)
-        trbj_embed = self.trbj_embed(trbj).squeeze(1)
-        mhc_embed = self.mhc_embed(mhc).squeeze(1)
+        trbv_embed = self.trbv_embed(trbv).unsqueeze(1)
+        trbj_embed = self.trbj_embed(trbj).unsqueeze(1)
+        mhc_embed = self.mhc_embed(mhc).unsqueeze(1)
 
         # Optional: normalize across sequence
         #tcr_emb = self.tcr_bn(tcr_emb)
@@ -154,10 +154,11 @@ class TCR_Epitope_Transformer(nn.Module):
 
         # Concatenate sequence and mask
         combined = torch.cat([tcr_emb, epitope_emb, trbv_embed, trbj_embed, mhc_embed], dim=1)
-        key_padding_mask = torch.cat([tcr_mask, epitope_mask, trbv_mask, trbj_mask, mhc_mask], dim=1)
+        combined = self._apply_padding_mask(combined, tcr_mask, epitope_mask)
+
 
         for layer in self.transformer_layers:
-            combined = layer(combined, key_padding_mask=key_padding_mask)
+            combined = layer(combined)
 
         # Flatten the combined sequences + embeddings
         flattened = combined.view(combined.size(0), -1)
@@ -171,3 +172,8 @@ class TCR_Epitope_Transformer(nn.Module):
 
         output = self.classifier(flattened).squeeze(1)
         return output
+
+    def _apply_padding_mask(self, x, tcr_mask, epitope_mask):
+        # Maskierung auf die relevanten Sequenzen anwenden (TCR und Epitope)
+        combined_mask = torch.cat([tcr_mask, epitope_mask], dim=1)  # Falls du diese Masken nur für TCR und Epitope brauchst
+        return x  # Hier kannst du das Maskieren umsetzen, falls erforderlic
