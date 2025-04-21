@@ -13,6 +13,8 @@ import sys
 import seaborn as sns
 import io
 from sklearn.calibration import calibration_curve
+import torch.nn as nn
+import torch.optim as optim
 
 # Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -75,7 +77,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v8" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v9" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
