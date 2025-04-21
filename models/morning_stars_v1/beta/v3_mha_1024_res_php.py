@@ -22,10 +22,6 @@ class Classifier(nn.Module):
     def __init__(self, input_dim, hidden_dim, dropout):
         super(Classifier, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
             ResidualBlock(hidden_dim, dropout),
             nn.Linear(hidden_dim, 1)
         )
@@ -85,8 +81,6 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
             torch.tensor(label, dtype=torch.float32),
         )
 
-
-
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim=128, num_heads=4, num_layers=2, max_tcr_length=43, max_epitope_length=43,
                  dropout=0.1, classifier_hidden_dim=64, physchem_dim=10):
@@ -94,9 +88,6 @@ class TCR_Epitope_Transformer(nn.Module):
         self.embed_dim = embed_dim
         self.tcr_embedding = nn.Linear(1024, embed_dim)
         self.epitope_embedding = nn.Linear(1024, embed_dim)
-
-        self.tcr_bn = nn.BatchNorm1d(max_tcr_length)
-        self.epitope_bn = nn.BatchNorm1d(max_epitope_length)
 
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
@@ -113,9 +104,6 @@ class TCR_Epitope_Transformer(nn.Module):
     def forward(self, tcr, epitope, tcr_physchem=None, epi_physchem=None):
         tcr_emb = self.tcr_embedding(tcr)
         epitope_emb = self.epitope_embedding(epitope)
-    
-        tcr_emb = self.tcr_bn(tcr_emb)
-        epitope_emb = self.epitope_bn(epitope_emb)
     
         # Create masks
         tcr_mask = (tcr.sum(dim=-1) == 0)
