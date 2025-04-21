@@ -20,8 +20,7 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-
+from models.morning_stars_v1.beta.v3_mha_1024_res_php import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -36,7 +35,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v1_mha",
+    name="Test_Run_v3_mha",
     config=config
 )
 
@@ -45,9 +44,17 @@ test_path = args.test if args.test else config['data_paths']['test']
 tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else config['embeddings']['tcr_test']
 epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else config['embeddings']['epitope_test']
 
+physchem_path = config['embeddings']['physchem']
+physchem_file = h5py.File(physchem_path, 'r')
+
 # Testdaten laden
 print(f"Lade Testdaten von: {test_path}")
 test_data = pd.read_csv(test_path, sep='\t')
+
+# physchem mapping laden
+physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+# Merge mit physchem_index
+test_data = pd.merge(test_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
 
 def load_h5_lazy(file_path):
     return h5py.File(file_path, 'r')
@@ -56,8 +63,11 @@ print('Lade Embeddings...')
 tcr_test_embeddings = load_h5_lazy(tcr_test_path)
 epitope_test_embeddings = load_h5_lazy(epitope_test_path)
 
+with h5py.File(physchem_path, 'r') as f:
+    inferred_physchem_dim = f["tcr_encoded"].shape[1]
+
 # Dataset & Dataloader
-test_dataset = LazyTCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
+test_dataset = LazyTCR_Epitope_Descriptor_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings, physchem_file)
 test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
 
 # Modell aufsetzen
@@ -69,15 +79,17 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64)
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
+    physchem_dim=inferred_physchem_dim  
 ).to(device)
+
 
 # Modell von wandb laden
 print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v10" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v0" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -92,9 +104,16 @@ print("✅ Modell geladen:", artifact.name)
 all_labels, all_outputs, all_preds = [], [], []
 
 with torch.no_grad():
-    for tcr, epitope, label in tqdm(test_loader, desc="Testing"):
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-        output = model(tcr, epitope)
+    for tcr, epitope, tcr_phys, epi_phys, label in tqdm(test_loader, desc="Testing"):
+        tcr, epitope, tcr_phys, epi_phys, label = (
+            tcr.to(device),
+            epitope.to(device),
+            tcr_phys.to(device),
+            epi_phys.to(device),
+            label.to(device)
+        )
+        output = model(tcr, epitope, tcr_phys, epi_phys)
+
         probs = torch.sigmoid(output)
         preds = (probs > 0.5).float()
 
