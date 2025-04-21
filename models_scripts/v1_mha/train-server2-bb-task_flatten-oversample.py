@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
+import math
 import pandas as pd
 import sys
 import yaml
@@ -16,10 +16,12 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import Subset
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v3_mha_1024_res_php import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -43,18 +45,15 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-physchem_path = config['embeddings']['physchem']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
-physchem_file = h5py.File(physchem_path, 'r')
-
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v3_mha_res"
+MODEL_NAME = "v1_mha-res"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
+run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}_flattened"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Logge Hyperparameter explizit
@@ -75,9 +74,9 @@ epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddi
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
-# Load Data -------------------------------------------------------
-#train_data = pd.read_csv(train_path, sep='\t')
-#val_data = pd.read_csv(val_path, sep='\t')
+# # Load Data -------------------------------------------------------
+# train_data = pd.read_csv(train_path, sep='\t')
+# val_data = pd.read_csv(val_path, sep='\t')
 
 dataset_name = f"beta_allele"
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
@@ -88,13 +87,6 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
-
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
-
-# Per Sequenz joinen
-train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
-val_data = pd.merge(val_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
-
 
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
@@ -113,51 +105,49 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-with h5py.File(config['embeddings']['physchem'], 'r') as f:
-    inferred_physchem_dim = f["tcr_encoded"].shape[1]
-
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file)
-val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file)
+train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
+val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class ClassBalancedBatchGenerator:
-    def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
-        self.full_dataset = full_dataset
+class OversampledFullDataset:
+    def __init__(self, dataset, labels):
+        self.dataset = dataset
         self.labels = np.array(labels)
-        self.batch_size = batch_size
-        self.pos_neg_ratio = pos_neg_ratio
+        self.pos_indices = np.where(self.labels == 1)[0]
+        self.neg_indices = np.where(self.labels == 0)[0]
 
-        self.positive_indices = np.where(self.labels == 1)[0]
-        self.negative_indices = np.where(self.labels == 0)[0]
+    def build_oversampled_indices(self):
+        num_neg = len(self.neg_indices)
+        num_pos = len(self.pos_indices)
 
-    def get_loader(self):
-        num_pos = len(self.positive_indices)
-        num_neg = min(len(self.negative_indices), num_pos * self.pos_neg_ratio)
-    
-        # Oversample positives auf die gleiche Anzahl wie Negative
-        sampled_pos_indices = np.random.choice(
-            self.positive_indices,
-            size=num_neg,         # gleich viele Positives wie Negatives
-            replace=False          # True: Wiederholung erlaubt
+        additional_pos_indices = np.random.choice(
+            self.pos_indices, size=num_neg - num_pos, replace=True
         )
-    
-        sampled_neg_indices = np.random.choice(
-            self.negative_indices,
-            size=num_neg,
-            replace=False
-        )
+        final_indices = np.concatenate([
+            self.neg_indices,
+            self.pos_indices,
+            additional_pos_indices
+        ])
+        np.random.shuffle(final_indices)
+        return final_indices
 
-        combined_indices = np.concatenate([sampled_pos_indices, sampled_neg_indices])
-        np.random.shuffle(combined_indices)
-    
-        subset = Subset(self.full_dataset, combined_indices)
-        loader = DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-        return loader
+    def get_loader(self, batch_size=32):
+        indices = self.build_oversampled_indices()
+        subset = Subset(self.dataset, indices)
+        return DataLoader(subset, batch_size=batch_size, shuffle=True)
+
+
+num_pos = len(train_data[train_data["Binding"] == 1])
+num_neg = len(train_data[train_data["Binding"] == 0])
+max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
+required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
+print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
-train_labels = train_data['Binding'].values 
-balanced_generator = ClassBalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=1) #erhöhen, damit mehr samples
+train_labels = train_data['Binding'].values
+balanced_generator = OversampledFullDataset(train_dataset, train_labels)
+
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -173,7 +163,6 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    physchem_dim=inferred_physchem_dim,
     classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
 
@@ -184,6 +173,30 @@ pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+'''class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        probs = torch.sigmoid(inputs)
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma
+        loss = focal_weight * bce_loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -215,16 +228,10 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, tcr_phys, epi_phys, label in train_loader_tqdm:
-        tcr, epitope, tcr_phys, epi_phys, label = (
-            tcr.to(device),
-            epitope.to(device),
-            tcr_phys.to(device),
-            epi_phys.to(device),
-            label.to(device),
-        )
+    for tcr, epitope, label in train_loader_tqdm:
+        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope, tcr_phys, epi_phys)
+        output = model(tcr, epitope)
         loss = criterion(output, label)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
@@ -245,15 +252,9 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, tcr_phys, epi_phys, label in val_loader_tqdm:
-            tcr, epitope, tcr_phys, epi_phys, label = (
-                tcr.to(device),
-                epitope.to(device),
-                tcr_phys.to(device),
-                epi_phys.to(device),
-                label.to(device),
-            )
-            output = model(tcr, epitope, tcr_phys, epi_phys)
+        for tcr, epitope, label in val_loader_tqdm:
+            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+            output = model(tcr, epitope)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -272,7 +273,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -288,7 +289,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -410,6 +411,7 @@ for epoch in range(epochs):
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
+    
 
     # Early Stopping Check
     if ap > best_ap:
@@ -425,7 +427,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v3_mha_res", exist_ok=True)
+    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
