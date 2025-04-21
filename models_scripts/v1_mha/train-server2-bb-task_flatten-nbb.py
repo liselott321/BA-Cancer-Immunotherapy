@@ -4,10 +4,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
+import math
 import pandas as pd
 import sys
 import yaml
@@ -16,11 +16,12 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.calibration import calibration_curve
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -109,45 +110,53 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class ClassBalancedBatchGenerator:
-    def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
-        self.full_dataset = full_dataset
+class RotatingFullCoverageSampler:
+    def __init__(self, dataset, labels, batch_size=32):
+        self.dataset = dataset
         self.labels = np.array(labels)
         self.batch_size = batch_size
-        self.pos_neg_ratio = pos_neg_ratio
 
-        self.positive_indices = np.where(self.labels == 1)[0]
-        self.negative_indices = np.where(self.labels == 0)[0]
+        self.pos_indices = np.where(self.labels == 1)[0]
+        self.neg_indices = np.where(self.labels == 0)[0]
+
+        self.pos_pointer = 0
+        self.neg_pointer = 0
+
+        np.random.shuffle(self.pos_indices)
+        np.random.shuffle(self.neg_indices)
 
     def get_loader(self):
-        num_pos = len(self.positive_indices)
-        num_neg = min(len(self.negative_indices), num_pos * self.pos_neg_ratio)
-    
-        # Oversample positives auf die gleiche Anzahl wie Negative
-        sampled_pos_indices = np.random.choice(
-            self.positive_indices,
-            size=num_neg,         # gleich viele Positives wie Negatives
-            replace=True          # Wiederholung erlaubt
-        )
-    
-        sampled_neg_indices = np.random.choice(
-            self.negative_indices,
-            size=num_neg,
-            replace=False
-        )
+        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
 
-        combined_indices = np.concatenate([sampled_pos_indices, sampled_neg_indices])
-        np.random.shuffle(combined_indices)
-    
-        subset = Subset(self.full_dataset, combined_indices)
-        loader = DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-        return loader
+        if chunk_size == 0:
+            # Reset when everything has been used at least once
+            self.pos_pointer = 0
+            self.neg_pointer = 0
+            np.random.shuffle(self.pos_indices)
+            np.random.shuffle(self.neg_indices)
+            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
 
+        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
+        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
+
+        self.pos_pointer += chunk_size
+        self.neg_pointer += chunk_size
+
+        combined = np.concatenate([sampled_pos, sampled_neg])
+        np.random.shuffle(combined)
+
+        subset = Subset(self.dataset, combined)
+        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
+
+num_pos = len(train_data[train_data["Binding"] == 1])
+num_neg = len(train_data[train_data["Binding"] == 0])
+max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
+required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
+print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
 train_labels = train_data['Binding'].values
-balanced_generator = ClassBalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=3)
-
+balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
 
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
@@ -175,6 +184,30 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+'''class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        probs = torch.sigmoid(inputs)
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma
+        loss = focal_weight * bce_loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
+
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
@@ -194,7 +227,8 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 4
+min_epochs = required_epochs 
+patience = 2
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -321,6 +355,31 @@ for epoch in range(epochs):
         all_tasks = val_data["task"].values
 
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+            
+            class TemperatureScaler(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.temperature = nn.Parameter(torch.ones(1) * 1.0)
+            
+                def forward(self, logits):
+                    return logits / self.temperature
+
+            def fit_temperature(logits, labels, max_iter=500):
+                logits = torch.tensor(logits).float()
+                labels = torch.tensor(labels).float()
+            
+                model = TemperatureScaler()
+                optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
+            
+                def closure():
+                    optimizer.zero_grad()
+                    loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
+                    loss.backward()
+                    return loss
+            
+                optimizer.step(closure)
+                return model.temperature.item()
+
             mask = all_tasks == tpp
             if mask.sum() > 0:
                 labels = all_labels[mask]
@@ -384,13 +443,57 @@ for epoch in range(epochs):
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
+                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
+                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
+                temperature = fit_temperature(raw_logits, labels)
+                scaled_logits = raw_logits / temperature
+                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
+                
+                # Jetzt z. B. neu evaluieren mit scaled_probs
+                scaled_preds = (scaled_probs > 0.5).astype(int)
+                
+                # Neue Metriken mit skalierter Ausgabe
+                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
+                scaled_acc = accuracy_score(labels, scaled_preds)
+                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
+                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
+                
+                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
+                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
+                
+                # Logge es optional nach wandb
+                wandb.log({
+                    f"val_{tpp}_temperature": temperature,
+                    f"val_{tpp}_f1_scaled": scaled_f1,
+                    f"val_{tpp}_accuracy_scaled": scaled_acc,
+                    f"val_{tpp}_precision_scaled": scaled_prec,
+                    f"val_{tpp}_recall_scaled": scaled_rec
+                }, step=global_step, commit=False)
+                # Reliability Diagram (nach dem Scaling!)
+                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
+                
+                plt.figure(figsize=(6, 4))
+                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
+                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
+                plt.xlabel("Predicted Probability (Binned)")
+                plt.ylabel("True Proportion of Positives")
+                plt.title(f"Reliability Diagram – {tpp}")
+                plt.legend()
+                plt.tight_layout()
+                
+                # Speicherpfad & Logging
+                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
+                plt.savefig(plot_path_calib)
+                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
+                plt.close()
+
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
     
-
-    # Early Stopping Check
+    
+    # Early Stopping: nur auf multiples von `min_epochs` schauen
     if ap > best_ap:
         best_ap = ap
         best_model_state = model.state_dict()
@@ -398,9 +501,12 @@ for epoch in range(epochs):
     else:
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
-        if early_stop_counter >= patience:
-            print("Early stopping triggered.")
-            break
+    
+    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
+    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+        print(f"Early stopping triggered at epoch {epoch+1}.")
+        break
+
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
