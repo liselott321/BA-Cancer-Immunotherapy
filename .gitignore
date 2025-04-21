@@ -189,3 +189,4 @@ results/trained_models/v1_mha/v1_mha_1024.pth
 =======
 results/trained_models/v1_mha/v1_mha_1024.pth
 >>>>>>> 7b469bf (Ensure model weights are ignored)
+*.png
