@@ -121,43 +121,53 @@ with h5py.File(config['embeddings']['physchem'], 'r') as f:
 train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file)
 val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file)
 
-class ClassBalancedBatchGenerator:
-    def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
-        self.full_dataset = full_dataset
+class RotatingFullCoverageSampler:
+    def __init__(self, dataset, labels, batch_size=32):
+        self.dataset = dataset
         self.labels = np.array(labels)
         self.batch_size = batch_size
-        self.pos_neg_ratio = pos_neg_ratio
 
-        self.positive_indices = np.where(self.labels == 1)[0]
-        self.negative_indices = np.where(self.labels == 0)[0]
+        self.pos_indices = np.where(self.labels == 1)[0]
+        self.neg_indices = np.where(self.labels == 0)[0]
+
+        self.pos_pointer = 0
+        self.neg_pointer = 0
+
+        np.random.shuffle(self.pos_indices)
+        np.random.shuffle(self.neg_indices)
 
     def get_loader(self):
-        num_pos = len(self.positive_indices)
-        num_neg = min(len(self.negative_indices), num_pos * self.pos_neg_ratio)
-    
-        # Oversample positives auf die gleiche Anzahl wie Negative
-        sampled_pos_indices = np.random.choice(
-            self.positive_indices,
-            size=num_neg,         # gleich viele Positives wie Negatives
-            replace=False          # True: Wiederholung erlaubt
-        )
-    
-        sampled_neg_indices = np.random.choice(
-            self.negative_indices,
-            size=num_neg,
-            replace=False
-        )
+        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
 
-        combined_indices = np.concatenate([sampled_pos_indices, sampled_neg_indices])
-        np.random.shuffle(combined_indices)
-    
-        subset = Subset(self.full_dataset, combined_indices)
-        loader = DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-        return loader
+        if chunk_size == 0:
+            # Reset when everything has been used at least once
+            self.pos_pointer = 0
+            self.neg_pointer = 0
+            np.random.shuffle(self.pos_indices)
+            np.random.shuffle(self.neg_indices)
+            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
+
+        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
+        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
+
+        self.pos_pointer += chunk_size
+        self.neg_pointer += chunk_size
+
+        combined = np.concatenate([sampled_pos, sampled_neg])
+        np.random.shuffle(combined)
+
+        subset = Subset(self.dataset, combined)
+        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
+
+num_pos = len(train_data[train_data["Binding"] == 1])
+num_neg = len(train_data[train_data["Binding"] == 0])
+max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
+required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
+print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
 train_labels = train_data['Binding'].values 
-balanced_generator = ClassBalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=1) #erhöhen, damit mehr samples
+balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -204,7 +214,8 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-patience = 4
+min_epochs = required_epochs 
+patience = 2
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -411,7 +422,7 @@ for epoch in range(epochs):
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
 
-    # Early Stopping Check
+    # Early Stopping: nur auf multiples von `min_epochs` schauen
     if ap > best_ap:
         best_ap = ap
         best_model_state = model.state_dict()
@@ -419,9 +430,11 @@ for epoch in range(epochs):
     else:
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
-        if early_stop_counter >= patience:
-            print("Early stopping triggered.")
-            break
+    
+    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
+    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+        print(f"Early stopping triggered at epoch {epoch+1}.")
+        break
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
