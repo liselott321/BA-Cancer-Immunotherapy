@@ -30,6 +30,7 @@ prov_emb_tcrpeg
 # oscar
 O__*
 dummy_data
+results/trained_models/v1_mha/v1_mha_1024_shap.pth
 data/
 # PyInstaller
 #  Usually these files are written by a python script from a template
