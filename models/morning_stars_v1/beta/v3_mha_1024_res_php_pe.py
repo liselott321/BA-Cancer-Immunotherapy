@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import h5py
+import math
+import numpy as np
 
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_dim, dropout):
@@ -56,22 +58,20 @@ class AttentionBlock(nn.Module):
         return x
 
 class PeriodicEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super(PeriodicEmbedding, self).__init__()
-        self.linear = nn.Linear(input_dim, hidden_dim)
-        self.hidden_dim = hidden_dim
+    def __init__(self, input_dim):
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = input_dim * 2
 
     def forward(self, x):
-        batch_size, seq_len = x.shape
-        pos = torch.arange(seq_len, dtype=torch.float32, device=x.device).unsqueeze(0)  # (1, feature_dim)
-        div_term = torch.exp(torch.arange(0, seq_len, 2, device=x.device).float() * (-math.log(10000.0) / seq_len))
+        # Erwartet (batch_size, input_dim)
+        div_term = torch.exp(
+            torch.arange(0, self.input_dim, device=x.device, dtype=x.dtype) *
+            -(np.log(10000.0) / self.input_dim)
+        )  # (input_dim,)
 
-        pe = torch.zeros_like(x)
-        pe[:, 0::2] = torch.sin(pos * div_term)
-        pe[:, 1::2] = torch.cos(pos * div_term)
-
-        x = x + pe  # Physchem Features + Periodic Encoding
-        return self.linear(x)
+        pe = torch.cat([torch.sin(x * div_term), torch.cos(x * div_term)], dim=-1)
+        return pe
 
 class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
     def __init__(self, data_frame, tcr_embeddings, epitope_embeddings, physchem_h5_path):
@@ -107,6 +107,7 @@ class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim=128, num_heads=4, num_layers=2, max_tcr_length=43, max_epitope_length=43,
                  dropout=0.1, classifier_hidden_dim=64, physchem_dim=10):
         super(TCR_Epitope_Transformer, self).__init__()
+
         self.embed_dim = embed_dim
         self.tcr_embedding = nn.Linear(1024, embed_dim)
         self.epitope_embedding = nn.Linear(1024, embed_dim)
@@ -119,9 +120,10 @@ class TCR_Epitope_Transformer(nn.Module):
         ])
 
         self.physchem_dim = physchem_dim
-        self.classifier_input_dim = embed_dim * (max_tcr_length + max_epitope_length) + physchem_dim * 2
-        self.tcr_physchem_embed = PeriodicEmbedding(physchem_dim, physchem_dim)
-        self.epi_physchem_embed = PeriodicEmbedding(physchem_dim, physchem_dim)
+        self.tcr_physchem_embed = PeriodicEmbedding(physchem_dim)
+        self.epi_physchem_embed = PeriodicEmbedding(physchem_dim)
+
+        self.classifier_input_dim = embed_dim * (max_tcr_length + max_epitope_length) + self.tcr_physchem_embed.output_dim * 2
 
         self.classifier = Classifier(self.classifier_input_dim, classifier_hidden_dim, dropout)
 
