@@ -172,3 +172,4 @@ class TCR_Epitope_Transformer(nn.Module):
             final_vector = torch.cat([tcr_flat, epi_cond], dim=1)
         
         output = self.classifier(final_vector).squeeze(1)
+        return output
