@@ -20,7 +20,7 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-from models.morning_stars_v1.beta.v3_mha_1024_res_php_pe import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v3_mha_1024_res_php_pe_new import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -52,7 +52,7 @@ print(f"Lade Testdaten von: {test_path}")
 test_data = pd.read_csv(test_path, sep='\t')
 
 # physchem mapping laden
-physchem_map = pd.read_csv("../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 # Merge mit physchem_index
 test_data = pd.merge(test_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
 
@@ -79,7 +79,7 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 128), #64 oder 128
     physchem_dim=inferred_physchem_dim  
 ).to(device)
 
@@ -89,7 +89,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v2" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v5" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
