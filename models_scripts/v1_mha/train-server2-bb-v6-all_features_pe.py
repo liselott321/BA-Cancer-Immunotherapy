@@ -54,7 +54,7 @@ PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
 MODEL_NAME = "v6_all_features_pe"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
+run_name = f"Run_{os.path.basename(model_path).replace('\..*$', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Logge Hyperparameter explizit
@@ -199,13 +199,15 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
+dropout = args.dropout if args.dropout else config['dropout']
+
 model = TCR_Epitope_Transformer_AllFeatures(
     config['embed_dim'],
     config['num_heads'],
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=config.get('dropout', 0.1),
+    dropout=dropout, # config.get('dropout', 0.1),
     physchem_dim=inferred_physchem_dim,
     classifier_hidden_dim=config.get('classifier_hidden_dim', 64), #nur für v1_mha_1024_res
     trbv_vocab_size=trbv_vocab_size,
@@ -241,7 +243,7 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 min_epochs = required_epochs 
-patience = 3
+patience = 5
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
