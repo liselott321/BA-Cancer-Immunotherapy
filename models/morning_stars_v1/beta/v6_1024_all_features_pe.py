@@ -61,10 +61,18 @@ class CrossAttentionBlock(nn.Module):
         self.cross_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, tcr_emb, epitope_emb):
-        attn_out, _ = self.cross_attn(epitope_emb, tcr_emb, tcr_emb)
+    def forward(self, tcr_emb, epitope_emb, key_padding_mask=None):
+        attn_out, _ = self.cross_attn(
+            epitope_emb,  # query
+            tcr_emb,      # key
+            tcr_emb,      # value
+            key_padding_mask=key_padding_mask
+        )
         return self.norm(epitope_emb + self.dropout(attn_out))
+
+    # def forward(self, tcr_emb, epitope_emb):
+    #     attn_out, _ = self.cross_attn(epitope_emb, tcr_emb, tcr_emb)
+    #     return self.norm(epitope_emb + self.dropout(attn_out))
 
 class PeriodicEmbedding(nn.Module):
     def __init__(self, input_dim):
@@ -162,7 +170,6 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         # Classifier input: tcr + epitope + trbv + trbj + mhc + tcr_physchem + epi_physchem
         self.classifier_input_dim = embed_dim * 5 + self.tcr_physchem_embed.output_dim * 2
         self.classifier = Classifier(self.classifier_input_dim, classifier_hidden_dim, dropout)
-
     def forward(self, tcr, epitope, tcr_physchem, epi_physchem, trbv, trbj, mhc):
         tcr_emb = self.tcr_embedding(tcr)
         epitope_emb = self.epitope_embedding(epitope)
@@ -171,7 +178,7 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         trbj_emb = self.trbj_embed(trbj).squeeze(1)
         mhc_emb = self.mhc_embed(mhc).squeeze(1)
 
-        # Padding masks
+        # Padding masks (True where padding exists)
         tcr_mask = (tcr.sum(dim=-1) == 0)
         epitope_mask = (epitope.sum(dim=-1) == 0)
 
@@ -180,12 +187,19 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
 
         for layer in self.transformer_layers:
-            tcr_emb = layer(tcr_emb)  # self-attention on TCR only
+            tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
 
-        cond_epitope = self.cross_attn_block(tcr_emb, epitope_emb)
+        cond_epitope = self.cross_attn_block(tcr_emb, epitope_emb, key_padding_mask=tcr_mask)
 
-        tcr_pooled = tcr_emb.mean(dim=1)
-        epitope_pooled = cond_epitope.mean(dim=1)
+        # Masked mean pooling
+        tcr_emb_masked = tcr_emb.masked_fill(tcr_mask.unsqueeze(-1), 0)
+        cond_epi_masked = cond_epitope.masked_fill(epitope_mask.unsqueeze(-1), 0)
+
+        tcr_lengths = (~tcr_mask).sum(dim=1, keepdim=True).clamp(min=1)
+        epi_lengths = (~epitope_mask).sum(dim=1, keepdim=True).clamp(min=1)
+
+        tcr_pooled = tcr_emb_masked.sum(dim=1) / tcr_lengths
+        epitope_pooled = cond_epi_masked.sum(dim=1) / epi_lengths
 
         # Embed physchem
         tcr_phys = self.tcr_physchem_embed(tcr_physchem)
@@ -199,3 +213,40 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         ], dim=1)
 
         return self.classifier(final_vector).squeeze(1)
+
+    # def forward(self, tcr, epitope, tcr_physchem, epi_physchem, trbv, trbj, mhc):
+    #     tcr_emb = self.tcr_embedding(tcr)
+    #     epitope_emb = self.epitope_embedding(epitope)
+
+    #     trbv_emb = self.trbv_embed(trbv).squeeze(1)
+    #     trbj_emb = self.trbj_embed(trbj).squeeze(1)
+    #     mhc_emb = self.mhc_embed(mhc).squeeze(1)
+
+    #     # Padding masks
+    #     tcr_mask = (tcr.sum(dim=-1) == 0)
+    #     epitope_mask = (epitope.sum(dim=-1) == 0)
+
+    #     # Positional encodings
+    #     tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
+    #     epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
+
+    #     for layer in self.transformer_layers:
+    #         tcr_emb = layer(tcr_emb)  # self-attention on TCR only
+
+    #     cond_epitope = self.cross_attn_block(tcr_emb, epitope_emb)
+
+    #     tcr_pooled = tcr_emb.mean(dim=1)
+    #     epitope_pooled = cond_epitope.mean(dim=1)
+
+    #     # Embed physchem
+    #     tcr_phys = self.tcr_physchem_embed(tcr_physchem)
+    #     epi_phys = self.epi_physchem_embed(epi_physchem)
+
+    #     # Concatenate all features
+    #     final_vector = torch.cat([
+    #         tcr_pooled, epitope_pooled,
+    #         trbv_emb, trbj_emb, mhc_emb,
+    #         tcr_phys, epi_phys
+    #     ], dim=1)
+
+    #     return self.classifier(final_vector).squeeze(1)
