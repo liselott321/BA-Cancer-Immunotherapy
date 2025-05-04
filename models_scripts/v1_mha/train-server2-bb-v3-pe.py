@@ -417,6 +417,49 @@ for epoch in range(epochs):
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
+                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
+                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
+                temperature = fit_temperature(raw_logits, labels)
+                scaled_logits = raw_logits / temperature
+                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
+                
+                # Jetzt z. B. neu evaluieren mit scaled_probs
+                scaled_preds = (scaled_probs > 0.5).astype(int)
+                
+                # Neue Metriken mit skalierter Ausgabe
+                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
+                scaled_acc = accuracy_score(labels, scaled_preds)
+                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
+                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
+                
+                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
+                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
+                
+                # Logge es optional nach wandb
+                wandb.log({
+                    f"val_{tpp}_temperature": temperature,
+                    f"val_{tpp}_f1_scaled": scaled_f1,
+                    f"val_{tpp}_accuracy_scaled": scaled_acc,
+                    f"val_{tpp}_precision_scaled": scaled_prec,
+                    f"val_{tpp}_recall_scaled": scaled_rec
+                }, step=global_step, commit=False)
+                # Reliability Diagram (nach dem Scaling!)
+                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
+                
+                plt.figure(figsize=(6, 4))
+                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
+                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
+                plt.xlabel("Predicted Probability (Binned)")
+                plt.ylabel("True Proportion of Positives")
+                plt.title(f"Reliability Diagram – {tpp}")
+                plt.legend()
+                plt.tight_layout()
+                
+                # Speicherpfad & Logging
+                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
+                plt.savefig(plot_path_calib)
+                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
+                plt.close()
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:

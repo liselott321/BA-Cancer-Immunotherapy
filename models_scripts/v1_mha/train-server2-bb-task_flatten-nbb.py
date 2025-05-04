@@ -182,7 +182,21 @@ wandb.watch(model, log="all", log_freq=100)
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
-criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+#criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+criterion = nn.BCEWithLogitsLoss()
+
+def confidence_penalty(logits, penalty_weight=0.1):
+    probs = torch.sigmoid(logits)
+    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
+    uniform = torch.full_like(probs, 0.5)
+    
+    # KL divergence term
+    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+
+    # Schutz gegen NaNs
+    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return penalty_weight * kl_div.mean()
 
 '''class FocalLoss(nn.Module):
     def __init__(self, alpha=1, gamma=2, reduction='mean'):
@@ -244,12 +258,17 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
+        loss += confidence_penalty(output)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
         global_step += 1
+
+        print("Loss BCE:", criterion(output, label).item())
+        print("KL penalty:", confidence_penalty(output).item())
+        print("Total loss:", loss.item())
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
