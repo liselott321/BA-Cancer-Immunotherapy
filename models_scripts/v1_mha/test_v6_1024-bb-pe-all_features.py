@@ -131,7 +131,9 @@ artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v6"
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
-
+# model_file = "../../results/trained_models/v6_all_features_pe/v6_all_features.pth"
+# model_file =    "../results/trained_models/v6_all_features_pe/v6_all_features.pth"
+# model_file = "/home/ubuntu/oscar/BA-Cancer-Immunotherapy/results/trained_models/v6_all_features_pe/v6_all_features.pth"
 # Gewichte ins Modell laden
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
