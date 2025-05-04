@@ -197,3 +197,4 @@ results/trained_models/v1_mha/v1_mha_1024.pth
 *.png
 *.tsv
 
+results/trained_models/*.pth
