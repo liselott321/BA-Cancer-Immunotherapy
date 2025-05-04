@@ -260,6 +260,10 @@ for epoch in range(epochs):
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
         global_step += 1
 
+        print("Loss BCE:", criterion(output, label).item())
+        print("KL penalty:", confidence_penalty(output).item())
+        print("Total loss:", loss.item())
+
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
     # Validation --------------------------------------------------------------------------------------------------------------
