@@ -187,9 +187,15 @@ criterion = nn.BCEWithLogitsLoss()
 
 def confidence_penalty(logits, penalty_weight=0.1):
     probs = torch.sigmoid(logits)
-    probs = torch.clamp(probs, min=1e-8, max=1-1e-8)
+    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
     uniform = torch.full_like(probs, 0.5)
-    kl_div = (probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform)))
+    
+    # KL divergence term
+    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+
+    # Schutz gegen NaNs
+    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+
     return penalty_weight * kl_div.mean()
 
 '''class FocalLoss(nn.Module):
