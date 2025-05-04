@@ -128,10 +128,18 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings,
-                                        trbv_dict, trbj_dict, mhc_dict)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings,
-                                      trbv_dict, trbj_dict, mhc_dict)
+train_dataset = LazyTCR_Epitope_Dataset(
+    train_data,
+    tcr_train_embeddings,
+    epitope_train_embeddings,
+    trbv_dict, trbj_dict, mhc_dict
+)
+val_dataset = LazyTCR_Epitope_Dataset(
+    val_data,
+    tcr_valid_embeddings,
+    epitope_valid_embeddings,
+    trbv_dict, trbj_dict, mhc_dict
+)
 
 
 class BalancedBatchGenerator:
