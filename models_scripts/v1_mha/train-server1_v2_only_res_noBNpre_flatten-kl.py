@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import math
+
 import pandas as pd
 import sys
 import yaml
@@ -17,9 +17,10 @@ from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v3_mha_1024_res_php_pe import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v2_only_res_noBNpre_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -43,16 +44,13 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-physchem_path = config['embeddings']['physchem']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
-physchem_file = h5py.File(physchem_path, 'r')
-
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v3_mha_res"
+MODEL_NAME = "v2"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -89,13 +87,28 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+# Mappings erstellen
+trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
+trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
+mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
 
-# Per Sequenz joinen
-train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
-val_data = pd.merge(val_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
+UNKNOWN_TRBV_IDX = len(trbv_dict)
+UNKNOWN_TRBJ_IDX = len(trbj_dict)
+UNKNOWN_MHC_IDX  = len(mhc_dict)
 
+for df in [train_data, val_data]:
+    df["TRBV_Index"] = df["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
+    df["TRBJ_Index"] = df["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
+    df["MHC_Index"]  = df["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
 
+# Vokabulargrößen bestimmen
+trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
+trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
+mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
+
+print(trbv_vocab_size)
+print(trbj_vocab_size)
+print(mhc_vocab_size)
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
@@ -113,13 +126,20 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-with h5py.File(config['embeddings']['physchem'], 'r') as f:
-    inferred_physchem_dim = f["tcr_encoded"].shape[1]
-
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file)
-val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file)
+train_dataset = LazyTCR_Epitope_Dataset(
+    train_data,
+    tcr_train_embeddings,
+    epitope_train_embeddings,
+    trbv_dict, trbj_dict, mhc_dict
+)
+val_dataset = LazyTCR_Epitope_Dataset(
+    val_data,
+    tcr_valid_embeddings,
+    epitope_valid_embeddings,
+    trbv_dict, trbj_dict, mhc_dict
+)
 
 class RotatingFullCoverageSampler:
     def __init__(self, dataset, labels, batch_size=32):
@@ -182,10 +202,13 @@ model = TCR_Epitope_Transformer(
     config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=config.get('dropout', 0.1),
-    physchem_dim=inferred_physchem_dim,
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
+    dropout=config.get('dropout', 0.2), #dropout angepasst
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
+    trbv_vocab_size=trbv_vocab_size,
+    trbj_vocab_size=trbj_vocab_size,
+    mhc_vocab_size=mhc_vocab_size
 ).to(device)
+
 
 wandb.watch(model, log="all", log_freq=100)
 
@@ -194,6 +217,19 @@ pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+def confidence_penalty(logits, penalty_weight=0.1):
+    probs = torch.sigmoid(logits)
+    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
+    uniform = torch.full_like(probs, 0.5)
+    
+    # KL divergence term
+    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+
+    # Schutz gegen NaNs
+    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return penalty_weight * kl_div.mean()
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -214,37 +250,46 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-min_epochs = required_epochs 
-patience = 3
+patience = 4
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
+    correct = 0
+    total = 0
 
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, tcr_phys, epi_phys, label in train_loader_tqdm:
-        tcr, epitope, tcr_phys, epi_phys, label = (
-            tcr.to(device),
-            epitope.to(device),
-            tcr_phys.to(device),
-            epi_phys.to(device),
-            label.to(device),
-        )
+    for tcr, epitope, trbv, trbj, mhc, label in train_loader_tqdm:
+        tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
         optimizer.zero_grad()
-        output = model(tcr, epitope, tcr_phys, epi_phys)
+        output = model(tcr, epitope, trbv, trbj, mhc)
         loss = criterion(output, label)
+        loss += confidence_penalty(output)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
+
+        # Berechne die Vorhersagen
+        preds = torch.sigmoid(output) > 0.5
+        correct += (preds == label).sum().item()  # Zähle die richtigen Vorhersagen
+        total += label.size(0)
+
+        accuracy = correct / total  # Berechne die Accuracy
+        
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
         global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
+
+    # Berechnung der Gesamt-Train-Accuracy für die Epoche
+    train_accuracy = correct / total
+    print(f"Epoch [{epoch+1}/{epochs}], Train Accuracy: {train_accuracy:.4f}")
+    wandb.log({"train_accuracy_epoch": train_accuracy}, step=epoch)
 
     # Validation --------------------------------------------------------------------------------------------------------------
     model.eval()
@@ -256,15 +301,9 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, tcr_phys, epi_phys, label in val_loader_tqdm:
-            tcr, epitope, tcr_phys, epi_phys, label = (
-                tcr.to(device),
-                epitope.to(device),
-                tcr_phys.to(device),
-                epi_phys.to(device),
-                label.to(device),
-            )
-            output = model(tcr, epitope, tcr_phys, epi_phys)
+        for tcr, epitope, trbv, trbj, mhc, label in val_loader_tqdm:
+            tcr, epitope, trbv, trbj, mhc, label = tcr.to(device), epitope.to(device), trbv.to(device), trbj.to(device), mhc.to(device), label.to(device)
+            output = model(tcr, epitope, trbv, trbj, mhc)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -283,7 +322,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -299,7 +338,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -490,7 +529,9 @@ for epoch in range(epochs):
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
 
-    # Early Stopping: nur auf multiples von `min_epochs` schauen
+    
+
+    # Early Stopping Check
     if ap > best_ap:
         best_ap = ap
         best_model_state = model.state_dict()
@@ -498,15 +539,13 @@ for epoch in range(epochs):
     else:
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
-    
-    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
-        print(f"Early stopping triggered at epoch {epoch+1}.")
-        break
+        if early_stop_counter >= patience:
+            print("Early stopping triggered.")
+            break
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v3_mha_res", exist_ok=True)
+    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
