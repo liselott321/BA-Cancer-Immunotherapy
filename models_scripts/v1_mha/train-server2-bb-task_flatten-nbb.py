@@ -182,8 +182,7 @@ wandb.watch(model, log="all", log_freq=100)
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
-#criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 def confidence_penalty(logits, penalty_weight=0.1):
     probs = torch.sigmoid(logits)
