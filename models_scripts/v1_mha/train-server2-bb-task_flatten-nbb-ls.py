@@ -18,13 +18,14 @@ import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.calibration import calibration_curve
 
+LABEL_SMOOTHING_EPSILON = 0.1  
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
 from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from utils.arg_parser_serv1 import * # pars_args
+from utils.arg_parser import * # pars_args
 
 args = parse_args()
 
@@ -37,7 +38,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -257,8 +257,11 @@ for epoch in range(epochs):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         optimizer.zero_grad()
         output = model(tcr, epitope)
-        loss = criterion(output, label)
-        loss += confidence_penalty(output)
+        # Label Smoothing anwenden
+        smoothed_labels = label * (1 - LABEL_SMOOTHING_EPSILON) + 0.5 * LABEL_SMOOTHING_EPSILON
+        loss = criterion(output, smoothed_labels)
+        #loss = criterion(output, label)
+        #loss += confidence_penalty(output)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
