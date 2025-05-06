@@ -33,14 +33,16 @@ with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
 epochs = args.epochs if args.epochs else config['epochs']
-batch_size = args.batch_size if args.batch_size else config['batch_size']
+batch_size = args.batch_size if args.batch_size else wandb.config.get("batch_size", config["batch_size"])
 print(f'Batch size: {batch_size}')
-learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
+learning_rate = args.learning_rate if args.learning_rate else wandb.config.get("learning_rate", config["learning_rate"])
 print(f'Learning rate: {learning_rate}')
-classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else config.get("classifier_hidden_dim", 128)
+classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else wandb.config.get("classifier_hidden_dim", config.get("classifier_hidden_dim", 128))
 print(f'Classifier hidden dim: {classifier_hidden_dim}')
 
-# print(epochs,'\n', batch_size,'\n', learning_rate)
+dropout = args.dropout if args.dropout else wandb.config.get("dropout", config.get("dropout", 0.1))
+num_heads = args.num_heads if args.num_heads else wandb.config.get("num_heads", config.get("num_heads", 4))
+num_layers = args.num_layers if args.num_layers else wandb.config.get("num_layers", config.get("num_layers", 1))
 
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
@@ -155,11 +157,11 @@ if device.type == "cuda":
 
 model = TCR_Epitope_Transformer(
     config['embed_dim'],
-    config['num_heads'],
-    config['num_layers'],
+    num_heads,
+    num_layers,
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=config.get('dropout', 0.1),
+    dropout=dropout,
     classifier_hidden_dim=classifier_hidden_dim
 ).to(device)
 
