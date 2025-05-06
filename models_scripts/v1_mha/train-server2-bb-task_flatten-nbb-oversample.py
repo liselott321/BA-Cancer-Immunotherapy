@@ -24,7 +24,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from utils.arg_parser import * # pars_args
+from utils.arg_parser_serv1 import * # pars_args
 
 args = parse_args()
 
@@ -37,6 +37,8 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
+classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else config.get("classifier_hidden_dim", 128)
+print(f'Classifier hidden dim: {classifier_hidden_dim}')
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -158,7 +160,7 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
+    classifier_hidden_dim=classifier_hidden_dim
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
@@ -169,7 +171,7 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-def confidence_penalty(logits, penalty_weight=0.1):
+'''def confidence_penalty(logits, penalty_weight=0.1):
     probs = torch.sigmoid(logits)
     probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
     uniform = torch.full_like(probs, 0.5)
@@ -180,31 +182,7 @@ def confidence_penalty(logits, penalty_weight=0.1):
     # Schutz gegen NaNs
     kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
 
-    return penalty_weight * kl_div.mean()
-
-'''class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
-
-    def forward(self, inputs, targets):
-        bce_loss = self.bce(inputs, targets)
-        probs = torch.sigmoid(inputs)
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
+    return penalty_weight * kl_div.mean()'''
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -241,7 +219,7 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
-        loss += confidence_penalty(output)
+        #loss += confidence_penalty(output)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
