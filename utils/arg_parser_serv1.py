@@ -37,5 +37,6 @@ def parse_args():
     parser.add_argument('--num_layers', type=int, help='Number of transformer layers')
     parser.add_argument('--max_tcr_length', type=int, help='Max TCR sequence length')
     parser.add_argument('--max_epitope_length', type=int, help='Max Epitope sequence length')
+    parser.add_argument('--classifier_hidden_dim', type=int, help='Hidden dimension of the classification head')
     
     return parser.parse_args()

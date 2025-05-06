@@ -1,5 +1,5 @@
 project: dataset-allele
-program: models_scripts/v1_mha/train-server2-bb-task_flatten-nbb.py 
+program: models_scripts/v1_mha/train-server2-bb-task_flatten-nbb-oversample.py 
 method: bayes  # oder "random" für schnelleres explorieren
 
 metric:
@@ -24,6 +24,5 @@ parameters:
   dropout:
     min: 0.1
     max: 0.5
-  penalty_weight:
-    min: 0.005
-    max: 0.1
+  classifier_hidden_dim:
+    values: [64, 128, 256, 512]
