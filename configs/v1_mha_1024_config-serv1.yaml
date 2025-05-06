@@ -7,6 +7,7 @@ num_heads: 4
 num_layers: 1
 max_tcr_length: 43
 max_epitope_length: 43
+classifier_hidden_dim: 128
 model_path: "results/trained_models/v1_mha/v1_mha_1024.pth"
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"
