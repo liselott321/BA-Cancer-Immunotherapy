@@ -24,7 +24,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from utils.arg_parser_serv1 import * # pars_args
+from utils.arg_parser import * # pars_args
 
 args = parse_args()
 
@@ -258,7 +258,7 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
-        loss += confidence_penalty(output)
+        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
