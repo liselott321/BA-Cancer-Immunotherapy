@@ -481,8 +481,7 @@ for epoch in range(epochs):
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
 
-    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+    if early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
