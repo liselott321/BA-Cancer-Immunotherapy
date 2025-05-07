@@ -1,12 +1,13 @@
-epochs: 35
+epochs: 20
 batch_size: 128
-learning_rate: 0.001
+learning_rate: 0.0005
 embed_dim: 128
-dropout: 0.3
-num_heads: 8
-num_layers: 2
+dropout: 0.1253686478148064
+num_heads: 4
+num_layers: 1
 max_tcr_length: 43
 max_epitope_length: 43
+classifier_hidden_dim: 128
 model_path: "results/trained_models/v1_mha/v1_mha_1024.pth"
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"

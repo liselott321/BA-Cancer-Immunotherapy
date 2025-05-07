@@ -4,7 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Argument parser for TCR-Epitope prediction model")
     
     # Paths
-    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_1024_config-ht.yaml', help='Path to configuration file')
+    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_1024_config-serv1.yaml', help='Path to configuration file')
     parser.add_argument('--train', type=str, help='Path to training dataset')
     parser.add_argument('--val', type=str, help='Path to validation dataset')
     parser.add_argument('--test', type=str, help='Path to testing dataset')
@@ -37,5 +37,6 @@ def parse_args():
     parser.add_argument('--num_layers', type=int, help='Number of transformer layers')
     parser.add_argument('--max_tcr_length', type=int, help='Max TCR sequence length')
     parser.add_argument('--max_epitope_length', type=int, help='Max Epitope sequence length')
+    parser.add_argument('--classifier_hidden_dim', type=int, help='Hidden dimension of the classification head')
     
     return parser.parse_args()

@@ -1,8 +1,8 @@
-epochs: 20
-batch_size: 16
-learning_rate: 0.004518
+epochs: 35
+batch_size: 128
+learning_rate: 0.001
 embed_dim: 128
-dropout: 0.1
+dropout: 0.3
 num_heads: 8
 num_layers: 2
 max_tcr_length: 43
