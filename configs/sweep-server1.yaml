@@ -1,8 +1,9 @@
-program: models_scripts/v1_mha/train-server1.py 
+project: dataset-allele
+program: models_scripts/v1_mha/train-server2-bb-task_flatten-nbb-oversample.py 
 method: bayes  # oder "random" für schnelleres explorieren
 
 metric:
-  name: val_auc
+  name: val_ap
   goal: maximize
 
 parameters:
@@ -13,10 +14,15 @@ parameters:
     min: 0.00001
     max: 0.01
   batch_size:
-    values: [16, 32, 64]
+    values: [64, 128, 256]
   num_layers:
     values: [1, 2, 3]
   num_heads:
     values: [2, 4, 8]
   optimizer:
-    values: ["adam", "sgd"]
+    values: ["adam"]
+  dropout:
+    min: 0.1
+    max: 0.5
+  classifier_hidden_dim:
+    values: [64, 128, 256, 512]
