@@ -1,9 +1,9 @@
 project: dataset-allele
-program: models_scripts/v1_mha/train-server2-bb.py
+program: models_scripts/v1_mha/train-server2-bb-task_flatten-nbb.py
 method: bayes  # oder "random" für schnelleres explorieren, grid search
 
 metric:
-  name: val_auc
+  name: val_ap
   goal: maximize
 
 parameters:
@@ -24,4 +24,6 @@ parameters:
   dropout:
     min: 0.1
     max: 0.5
-
+  penalty_weight:
+    min: 0.001
+    max: 0.1

@@ -37,6 +37,7 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
+penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -182,8 +183,7 @@ wandb.watch(model, log="all", log_freq=100)
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
-#criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 def confidence_penalty(logits, penalty_weight=0.1):
     probs = torch.sigmoid(logits)
@@ -258,17 +258,13 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
-        loss += confidence_penalty(output)
+        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
         epoch_loss += loss.item()
         wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
         global_step += 1
-
-        print("Loss BCE:", criterion(output, label).item())
-        print("KL penalty:", confidence_penalty(output).item())
-        print("Total loss:", loss.item())
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
