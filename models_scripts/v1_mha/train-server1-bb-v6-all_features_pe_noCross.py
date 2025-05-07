@@ -90,7 +90,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 # BA-Cancer-Immunotherapy/models_scripts/v1_mha/train-server1-bb-v6-all_features_pe.py
 # BA-Cancer-Immunotherapy/data/physico/descriptor_encoded_physchem_mapping.tsv
 # Per Sequenz joinen
