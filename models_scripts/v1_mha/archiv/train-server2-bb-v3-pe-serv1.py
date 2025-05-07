@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
@@ -16,6 +16,7 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
@@ -89,7 +90,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 
 # Per Sequenz joinen
 train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
@@ -195,6 +196,19 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+def confidence_penalty(logits, penalty_weight=0.1):
+    probs = torch.sigmoid(logits)
+    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
+    uniform = torch.full_like(probs, 0.5)
+    
+    # KL divergence term
+    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+
+    # Schutz gegen NaNs
+    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return penalty_weight * kl_div.mean()
+
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
@@ -237,6 +251,7 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope, tcr_phys, epi_phys)
         loss = criterion(output, label)
+        loss += confidence_penalty(output)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
@@ -485,6 +500,7 @@ for epoch in range(epochs):
                 plt.savefig(plot_path_calib)
                 wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
                 plt.close()
+
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
