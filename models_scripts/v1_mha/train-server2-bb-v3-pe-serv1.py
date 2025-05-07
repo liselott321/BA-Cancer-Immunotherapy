@@ -185,7 +185,7 @@ model = TCR_Epitope_Transformer(
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
     physchem_dim=inferred_physchem_dim,
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 128) #nur für v1_mha_1024_res
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
