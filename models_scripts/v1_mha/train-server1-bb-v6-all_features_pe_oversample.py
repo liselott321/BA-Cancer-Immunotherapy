@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
+from models.morning_stars_v1.beta.v6_1024_all_features_pe import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -44,7 +44,7 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
 # physchem_path = config['embeddings']['physchem']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
-physchem_path = "../../data/physico/descriptor_encoded_physchem.h5"
+physchem_path = "../../../data/physico/descriptor_encoded_physchem.h5"
 physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
@@ -53,7 +53,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_pe_mask_oversample"
+MODEL_NAME = "v6_all_features_pe_oversample"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pth', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -138,61 +138,52 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-with h5py.File(config['embeddings']['physchem'], 'r') as f:
+with h5py.File(physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
+
+class OversampledDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, labels):
+        self.base_dataset = base_dataset
+
+        # Use preloaded labels directly
+        pos_indices = [i for i, l in enumerate(labels) if l == 1]
+        neg_indices = [i for i, l in enumerate(labels) if l == 0]
+
+        if len(pos_indices) > len(neg_indices):
+            self.indices = pos_indices + np.random.choice(neg_indices, len(pos_indices), replace=True).tolist()
+        else:
+            self.indices = neg_indices + np.random.choice(pos_indices, len(neg_indices), replace=True).tolist()
+
+        random.shuffle(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        return self.base_dataset[self.indices[idx]]
+
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
 train_dataset = LazyFullFeatureDataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file, trbv_dict, trbj_dict, mhc_dict)
 val_dataset = LazyFullFeatureDataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file, trbv_dict, trbj_dict, mhc_dict)
 
-class RotatingFullCoverageSampler:
-    def __init__(self, dataset, labels, batch_size=32):
-        self.dataset = dataset
-        self.labels = np.array(labels)
-        self.batch_size = batch_size
-
-        self.pos_indices = np.where(self.labels == 1)[0]
-        self.neg_indices = np.where(self.labels == 0)[0]
-
-        self.pos_pointer = 0
-        self.neg_pointer = 0
-
-        np.random.shuffle(self.pos_indices)
-        np.random.shuffle(self.neg_indices)
-
-    def get_loader(self):
-        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
-
-        if chunk_size == 0:
-            # Reset when everything has been used at least once
-            self.pos_pointer = 0
-            self.neg_pointer = 0
-            np.random.shuffle(self.pos_indices)
-            np.random.shuffle(self.neg_indices)
-            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
-
-        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
-        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
-
-        self.pos_pointer += chunk_size
-        self.neg_pointer += chunk_size
-
-        combined = np.concatenate([sampled_pos, sampled_neg])
-        np.random.shuffle(combined)
-
-        subset = Subset(self.dataset, combined)
-        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-
-num_pos = len(train_data[train_data["Binding"] == 1])
-num_neg = len(train_data[train_data["Binding"] == 0])
-max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
-required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
-print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
+# num_pos = len(train_data[train_data["Binding"] == 1])
+# num_neg = len(train_data[train_data["Binding"] == 0])
+# max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
+# required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
+# print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
-train_labels = train_data['Binding'].values 
-balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
+
+
+
+train_labels = train_data['Binding'].values.tolist()  # Already in memory!
+print(f"Loaded {len(train_labels)} labels, starting oversampling...")
+oversampled_train_dataset = OversampledDataset(train_dataset, train_labels)
+
+print("initializing the train and val loaders...")
+train_loader = DataLoader(oversampled_train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -219,6 +210,7 @@ model = TCR_Epitope_Transformer_AllFeatures(
 
 wandb.watch(model, log="all", log_freq=100)
 
+train_labels = train_data['Binding'].values 
 # Loss
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
@@ -244,8 +236,8 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-min_epochs = required_epochs 
-patience = 5
+# min_epochs = required_epochs 
+patience = 4
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -253,7 +245,10 @@ for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
-    train_loader = balanced_generator.get_loader()
+    train_loader = DataLoader(oversampled_train_dataset, batch_size=batch_size, shuffle=True)
+
+
+    # train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label in train_loader_tqdm:
@@ -464,7 +459,7 @@ for epoch in range(epochs):
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
     # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+    if early_stop_counter >= patience: # ((epoch + 1) % min_epochs == 0) and
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
