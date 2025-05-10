@@ -182,44 +182,32 @@ wandb.watch(model, log="all", log_freq=100)
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
-criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-def confidence_penalty(logits, penalty_weight=0.1):
-    probs = torch.sigmoid(logits)
-    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
-    uniform = torch.full_like(probs, 0.5)
-    
-    # KL divergence term
-    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+class SoftAPLoss(torch.nn.Module):
+    def __init__(self):
+        super(SoftAPLoss, self).__init__()
 
-    # Schutz gegen NaNs
-    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+    def forward(self, y_pred, y_true):
+        """
+        y_pred: [batch_size] - predicted logits (before sigmoid)
+        y_true: [batch_size] - 0 or 1
+        """
+        pos_mask = y_true > 0.5
+        neg_mask = y_true <= 0.5
 
-    return penalty_weight * kl_div.mean()
+        pos_scores = y_pred[pos_mask]
+        neg_scores = y_pred[neg_mask]
 
-'''class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+        if len(pos_scores) == 0 or len(neg_scores) == 0:
+            return torch.tensor(0.0, requires_grad=True).to(y_pred.device)
 
-    def forward(self, inputs, targets):
-        bce_loss = self.bce(inputs, targets)
-        probs = torch.sigmoid(inputs)
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * bce_loss
+        # Compute pairwise difference
+        diff = neg_scores.unsqueeze(0) - pos_scores.unsqueeze(1)  # [num_pos, num_neg]
+        loss = torch.log(1 + torch.exp(diff)).mean()  # softmax version of ranking loss
 
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
+        return loss
 
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
+criterion = SoftAPLoss()
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
