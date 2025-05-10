@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_noCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -53,7 +53,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_pe_mask_noCross"
+MODEL_NAME = "v6_all_features_pe_mask_oversample"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pth', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -90,7 +90,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 # BA-Cancer-Immunotherapy/models_scripts/v1_mha/train-server1-bb-v6-all_features_pe.py
 # BA-Cancer-Immunotherapy/data/physico/descriptor_encoded_physchem_mapping.tsv
 # Per Sequenz joinen

@@ -35,7 +35,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v6_all_features",
+    name="Test_Run_v6_NoCross",
     config=config
 )
 
@@ -127,7 +127,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v6_all_featuresh_model:v0" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v6_all_features_smallBatchh_model:v0" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -265,5 +265,31 @@ if "task" in test_data.columns:
             print(f"\nKeine Beispiele für {tpp}")
 else:
     print("\nKeine 'task'-Spalte in Testdaten – TPP-Auswertung übersprungen.")
+
+# General Confusion Matrix Logging (all tasks combined)
+wandb.log({
+    "General_confusion_matrix": wandb.plot.confusion_matrix(
+        y_true=all_labels.astype(int),
+        preds=all_preds.astype(int),
+        class_names=["Not Binding", "Binding"],
+        title="Confusion Matrix – General"
+    )
+})
+
+# # Optional: Plot and log prediction distribution overall
+# plt.figure(figsize=(6, 4))
+# plt.hist(all_outputs, bins=50, color='lightcoral', edgecolor='black')
+# plt.title("Prediction Score Distribution – General")
+# plt.xlabel("Predicted Probability")
+# plt.ylabel("Frequency")
+# plt.tight_layout()
+
+# general_plot_path = "results/General_confidence_hist_test.png"
+# os.makedirs("results", exist_ok=True)
+# plt.savefig(general_plot_path)
+# wandb.log({"General_prediction_distribution": wandb.Image(general_plot_path)})
+# plt.close()
+
+
 
 wandb.finish()
