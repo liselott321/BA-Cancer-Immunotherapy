@@ -29,7 +29,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v1_mha",
+    name="Test_Run_v2",
     config=config
 )
 
@@ -206,6 +206,21 @@ for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
                 title=f"Confusion Matrix – {tpp}"
             )
         })
+
+        # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+        plt.figure(figsize=(6, 4))
+        plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
+        plt.title(f"Prediction Score Distribution – {tpp}")
+        plt.xlabel("Predicted Probability")
+        plt.ylabel("Frequency")
+        plt.tight_layout()
+            
+        # Speicherpfad & Logging
+        plot_path = f"results/{tpp}_confidence_hist_test.png"
+        os.makedirs("results", exist_ok=True)
+        plt.savefig(plot_path)
+        wandb.log({f"{tpp}_prediction_distribution": wandb.Image(plot_path)})
+        plt.close()
 
     else:
         print(f"\n Keine Beispiele für {tpp}")
