@@ -4,10 +4,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import math
+from torch.cuda.amp import GradScaler, autocast
 import pandas as pd
 import sys
 import yaml
@@ -16,12 +16,11 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.calibration import calibration_curve
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
+from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -37,10 +36,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-<<<<<<< HEAD
-penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
-=======
->>>>>>> 7d7e7d0489d80a4c72b4e38402d76c4201e5099d
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -114,54 +109,31 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class RotatingFullCoverageSampler:
-    def __init__(self, dataset, labels, batch_size=32):
-        self.dataset = dataset
+class BalancedBatchGenerator:
+    def __init__(self, full_dataset, labels, batch_size=32, pos_neg_ratio=1):
+        self.full_dataset = full_dataset
         self.labels = np.array(labels)
         self.batch_size = batch_size
+        self.pos_neg_ratio = pos_neg_ratio
 
-        self.pos_indices = np.where(self.labels == 1)[0]
-        self.neg_indices = np.where(self.labels == 0)[0]
-
-        self.pos_pointer = 0
-        self.neg_pointer = 0
-
-        np.random.shuffle(self.pos_indices)
-        np.random.shuffle(self.neg_indices)
+        self.positive_indices = np.where(self.labels == 1)[0]
+        self.negative_indices = np.where(self.labels == 0)[0]
 
     def get_loader(self):
-        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
+        num_pos = len(self.positive_indices)
+        num_neg = num_pos * self.pos_neg_ratio
 
-        if chunk_size == 0:
-            # Reset when everything has been used at least once
-            self.pos_pointer = 0
-            self.neg_pointer = 0
-            np.random.shuffle(self.pos_indices)
-            np.random.shuffle(self.neg_indices)
-            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
+        sampled_neg_indices = np.random.choice(self.negative_indices, size=num_neg, replace=False) #evtl nochmals test mit True
+        combined_indices = np.concatenate([self.positive_indices, sampled_neg_indices])
+        np.random.shuffle(combined_indices)
 
-        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
-        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
-
-        self.pos_pointer += chunk_size
-        self.neg_pointer += chunk_size
-
-        combined = np.concatenate([sampled_pos, sampled_neg])
-        np.random.shuffle(combined)
-
-        subset = Subset(self.dataset, combined)
-        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-
-num_pos = len(train_data[train_data["Binding"] == 1])
-num_neg = len(train_data[train_data["Binding"] == 0])
-max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
-required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
-print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
+        subset = Subset(self.full_dataset, combined_indices)
+        loader = DataLoader(subset, batch_size=self.batch_size, shuffle=True)
+        return loader
 
 # Data loaders
-train_labels = train_data['Binding'].values
-balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
-
+train_labels = train_data['Binding'].values 
+balanced_generator = BalancedBatchGenerator(train_dataset, train_labels, batch_size=batch_size, pos_neg_ratio=1)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -188,43 +160,6 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-def confidence_penalty(logits, penalty_weight=0.1):
-    probs = torch.sigmoid(logits)
-    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
-    uniform = torch.full_like(probs, 0.5)
-    
-    # KL divergence term
-    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
-
-    # Schutz gegen NaNs
-    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return penalty_weight * kl_div.mean()
-
-'''class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
-
-    def forward(self, inputs, targets):
-        bce_loss = self.bce(inputs, targets)
-        probs = torch.sigmoid(inputs)
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
-
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
@@ -234,7 +169,7 @@ num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
 weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
 
 if optimizer_name == "adam":
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
@@ -244,32 +179,64 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-min_epochs = required_epochs 
-patience = 2
+patience = 4
 global_step = 0
+
+scaler = GradScaler()
+accumulation_steps = 4
 
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
+    correct = 0  # Zähler für korrekte Vorhersagen
+    total = 0    # Zähler für die Gesamtanzahl der Beispiele
 
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, label in train_loader_tqdm:
+    for step, (tcr, epitope, label) in enumerate(train_loader_tqdm):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+
         optimizer.zero_grad()
-        output = model(tcr, epitope)
-        loss = criterion(output, label)
-        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
-        optimizer.step()
+
+        # Mixed Precision: Mit autocast() den Vorwärtsdurchlauf durchführen
+        with autocast():  # Mixed Precision aktiviert
+            output = model(tcr, epitope)
+            loss = criterion(output, label)
+
+        # Backpropagation
+        scaler.scale(loss).backward()  # Skaliere Gradienten
+
+        # Gradient Clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        # Optimierung nur nach jedem `accumulation_steps`-Schritt
+        if (step + 1) % accumulation_steps == 0:
+            scaler.step(optimizer)  # Optimierungsschritt
+            scaler.update()  # Update des GradScaler
+            optimizer.zero_grad()  # Gradienten zurücksetzen
+
         epoch_loss += loss.item()
-        wandb.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+
+        # Berechnung der Accuracy für das aktuelle Batch
+        preds = torch.sigmoid(output) > 0.5
+        correct += (preds == label).sum().item()  # Zähle korrekte Vorhersagen
+        total += label.size(0)  # Gesamtanzahl der Beispiele
+
+        accuracy = correct / total
+
+        # Logge Verlust und Accuracy in wandb
+        wandb.log({"train_loss": loss.item(), "train_accuracy": accuracy, "epoch": epoch}, step=global_step)
+        
         global_step += 1
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
+
+    print(f"Epoch [{epoch+1}/{epochs}], Train Accuracy: {accuracy:.4f}")
+    
+    # Logge die End-Accuracy der Epoche in wandb
+    wandb.log({"train_accuracy_epoch": accuracy}, step=epoch)
 
     # Validation --------------------------------------------------------------------------------------------------------------
     model.eval()
@@ -366,38 +333,13 @@ for epoch in range(epochs):
         y_true=all_labels,
         preds=all_preds,
         class_names=["Not Binding", "Binding"])
-    }, step=global_step, commit=False)
+    },  step=global_step, commit=False)
 
     # ===== TPP1–TPP4 Auswertung im Validierungsset =====
     if "task" in val_data.columns:
         all_tasks = val_data["task"].values
 
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
-            
-            class TemperatureScaler(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.temperature = nn.Parameter(torch.ones(1) * 1.0)
-            
-                def forward(self, logits):
-                    return logits / self.temperature
-
-            def fit_temperature(logits, labels, max_iter=500):
-                logits = torch.tensor(logits).float()
-                labels = torch.tensor(labels).float()
-            
-                model = TemperatureScaler()
-                optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
-            
-                def closure():
-                    optimizer.zero_grad()
-                    loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
-                    loss.backward()
-                    return loss
-            
-                optimizer.step(closure)
-                return model.temperature.item()
-
             mask = all_tasks == tpp
             if mask.sum() > 0:
                 labels = all_labels[mask]
@@ -448,6 +390,7 @@ for epoch in range(epochs):
                         title=f"Confusion Matrix – {tpp}"
                     )
                 }, step=global_step, commit=False)
+
                 # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
                 plt.figure(figsize=(6, 4))
                 plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
@@ -459,59 +402,15 @@ for epoch in range(epochs):
                 # Speicherpfad & Logging
                 plot_path = f"results/{tpp}_confidence_hist_epoch{epoch+1}.png"
                 plt.savefig(plot_path)
-                wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
+                wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step, commit=False)
                 plt.close()
-                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
-                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
-                temperature = fit_temperature(raw_logits, labels)
-                scaled_logits = raw_logits / temperature
-                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
-                
-                # Jetzt z. B. neu evaluieren mit scaled_probs
-                scaled_preds = (scaled_probs > 0.5).astype(int)
-                
-                # Neue Metriken mit skalierter Ausgabe
-                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
-                scaled_acc = accuracy_score(labels, scaled_preds)
-                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
-                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
-                
-                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
-                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
-                
-                # Logge es optional nach wandb
-                wandb.log({
-                    f"val_{tpp}_temperature": temperature,
-                    f"val_{tpp}_f1_scaled": scaled_f1,
-                    f"val_{tpp}_accuracy_scaled": scaled_acc,
-                    f"val_{tpp}_precision_scaled": scaled_prec,
-                    f"val_{tpp}_recall_scaled": scaled_rec
-                }, step=global_step, commit=False)
-                # Reliability Diagram (nach dem Scaling!)
-                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
-                
-                plt.figure(figsize=(6, 4))
-                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
-                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
-                plt.xlabel("Predicted Probability (Binned)")
-                plt.ylabel("True Proportion of Positives")
-                plt.title(f"Reliability Diagram – {tpp}")
-                plt.legend()
-                plt.tight_layout()
-                
-                # Speicherpfad & Logging
-                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
-                plt.savefig(plot_path_calib)
-                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
-                plt.close()
-
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
     
-    
-    # Early Stopping: nur auf multiples von `min_epochs` schauen
+
+    # Early Stopping Check
     if ap > best_ap:
         best_ap = ap
         best_model_state = model.state_dict()
@@ -519,12 +418,9 @@ for epoch in range(epochs):
     else:
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
-    
-    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
-        print(f"Early stopping triggered at epoch {epoch+1}.")
-        break
-
+        if early_stop_counter >= patience:
+            print("Early stopping triggered.")
+            break
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
@@ -16,12 +16,10 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.calibration import calibration_curve
-
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
+from models.morning_stars_v1.beta.v5 import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -37,10 +35,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-<<<<<<< HEAD
-penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
-=======
->>>>>>> 7d7e7d0489d80a4c72b4e38402d76c4201e5099d
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -49,15 +43,21 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
+physchem_path = config['embeddings']['ple_edges']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
+ple_edges_path = physchem_path
+# zusätzlich: das Raw-HDF5 zum Auslesen von tcr_raw/epi_raw
+physchem_raw_h5 = config['embeddings']['physchem_raw_h5']
+physchem_file     = h5py.File(physchem_raw_h5, 'r')
+
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v1_mha-res"
+MODEL_NAME = "v5"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}_flattened"
+run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Logge Hyperparameter explizit
@@ -78,9 +78,9 @@ epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddi
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
-# # Load Data -------------------------------------------------------
-# train_data = pd.read_csv(train_path, sep='\t')
-# val_data = pd.read_csv(val_path, sep='\t')
+# Load Data -------------------------------------------------------
+#train_data = pd.read_csv(train_path, sep='\t')
+#val_data = pd.read_csv(val_path, sep='\t')
 
 dataset_name = f"beta_allele"
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
@@ -91,6 +91,19 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
+
+# (falls Du noch eine Mapping-Tabelle brauchst, lade sie hier:)
+physchem_map = pd.read_csv(config['embeddings']['physchem_map'], sep="\t")
+# rename idx → physchem_index, damit das Dataset funktioniert
+physchem_map.rename(columns={"idx": "physchem_index"}, inplace=True)
+
+train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3","Epitope"], how="left")
+val_data   = pd.merge(val_data,   physchem_map, on=["TRB_CDR3","Epitope"], how="left")
+
+# (optional) prüfen, ob irgendwo physchem_index fehlt
+n_missing = train_data["physchem_index"].isna().sum()
+if n_missing>0:
+    raise ValueError(f"{n_missing} Einträge ohne physchem_index!")
 
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
@@ -109,10 +122,11 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
-val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
+train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file)
+val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file)
 
 class RotatingFullCoverageSampler:
     def __init__(self, dataset, labels, batch_size=32):
@@ -159,9 +173,8 @@ required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
 print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
-train_labels = train_data['Binding'].values
+train_labels = train_data['Binding'].values 
 balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
-
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -177,6 +190,7 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
+    ple_edges_path=config['embeddings']['ple_edges'],
     classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
 
@@ -187,43 +201,6 @@ pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-
-def confidence_penalty(logits, penalty_weight=0.1):
-    probs = torch.sigmoid(logits)
-    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
-    uniform = torch.full_like(probs, 0.5)
-    
-    # KL divergence term
-    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
-
-    # Schutz gegen NaNs
-    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return penalty_weight * kl_div.mean()
-
-'''class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
-
-    def forward(self, inputs, targets):
-        bce_loss = self.bce(inputs, targets)
-        probs = torch.sigmoid(inputs)
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -245,7 +222,7 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 min_epochs = required_epochs 
-patience = 2
+patience = 3
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -256,12 +233,17 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, label in train_loader_tqdm:
-        tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
+    for tcr, epitope, tcr_phys, epi_phys, label in train_loader_tqdm:
+        tcr, epitope, tcr_phys, epi_phys, label = (
+            tcr.to(device),
+            epitope.to(device),
+            tcr_phys.to(device),
+            epi_phys.to(device),
+            label.to(device),
+        )
         optimizer.zero_grad()
-        output = model(tcr, epitope)
+        output = model(tcr, epitope, tcr_phys, epi_phys)
         loss = criterion(output, label)
-        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
@@ -281,9 +263,15 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, label in val_loader_tqdm:
-            tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
-            output = model(tcr, epitope)
+        for tcr, epitope, tcr_phys, epi_phys, label in val_loader_tqdm:
+            tcr, epitope, tcr_phys, epi_phys, label = (
+                tcr.to(device),
+                epitope.to(device),
+                tcr_phys.to(device),
+                epi_phys.to(device),
+                label.to(device),
+            )
+            output = model(tcr, epitope, tcr_phys, epi_phys)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -302,7 +290,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -318,7 +306,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -373,31 +361,6 @@ for epoch in range(epochs):
         all_tasks = val_data["task"].values
 
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
-            
-            class TemperatureScaler(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.temperature = nn.Parameter(torch.ones(1) * 1.0)
-            
-                def forward(self, logits):
-                    return logits / self.temperature
-
-            def fit_temperature(logits, labels, max_iter=500):
-                logits = torch.tensor(logits).float()
-                labels = torch.tensor(labels).float()
-            
-                model = TemperatureScaler()
-                optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
-            
-                def closure():
-                    optimizer.zero_grad()
-                    loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
-                    loss.backward()
-                    return loss
-            
-                optimizer.step(closure)
-                return model.temperature.item()
-
             mask = all_tasks == tpp
             if mask.sum() > 0:
                 labels = all_labels[mask]
@@ -461,56 +424,11 @@ for epoch in range(epochs):
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
-                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
-                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
-                temperature = fit_temperature(raw_logits, labels)
-                scaled_logits = raw_logits / temperature
-                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
-                
-                # Jetzt z. B. neu evaluieren mit scaled_probs
-                scaled_preds = (scaled_probs > 0.5).astype(int)
-                
-                # Neue Metriken mit skalierter Ausgabe
-                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
-                scaled_acc = accuracy_score(labels, scaled_preds)
-                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
-                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
-                
-                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
-                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
-                
-                # Logge es optional nach wandb
-                wandb.log({
-                    f"val_{tpp}_temperature": temperature,
-                    f"val_{tpp}_f1_scaled": scaled_f1,
-                    f"val_{tpp}_accuracy_scaled": scaled_acc,
-                    f"val_{tpp}_precision_scaled": scaled_prec,
-                    f"val_{tpp}_recall_scaled": scaled_rec
-                }, step=global_step, commit=False)
-                # Reliability Diagram (nach dem Scaling!)
-                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
-                
-                plt.figure(figsize=(6, 4))
-                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
-                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
-                plt.xlabel("Predicted Probability (Binned)")
-                plt.ylabel("True Proportion of Positives")
-                plt.title(f"Reliability Diagram – {tpp}")
-                plt.legend()
-                plt.tight_layout()
-                
-                # Speicherpfad & Logging
-                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
-                plt.savefig(plot_path_calib)
-                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
-                plt.close()
-
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
-    
-    
+
     # Early Stopping: nur auf multiples von `min_epochs` schauen
     if ap > best_ap:
         best_ap = ap
@@ -525,10 +443,9 @@ for epoch in range(epochs):
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
-
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
+    os.makedirs("results/trained_models/v3_mha_res", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 

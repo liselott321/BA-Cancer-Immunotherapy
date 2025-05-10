@@ -69,7 +69,7 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64)
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 512) #64
 ).to(device)
 
 # Modell von wandb laden
