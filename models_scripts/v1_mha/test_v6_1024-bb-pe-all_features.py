@@ -20,7 +20,7 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-from models.morning_stars_v1.beta.v6_1024_all_features_pe import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -35,7 +35,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v6_NoCross",
+    name="Test_Run_v6_doubleCross",
     config=config
 )
 
@@ -127,7 +127,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v6_all_features_smallBatchh_model:v0" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v6_all_features_doubleCross_model:v0" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
