@@ -510,33 +510,15 @@ for epoch in range(epochs):
     
 
      # ==== Modell speichern nach jeder Epoche ====
-     os.makedirs(os.path.dirname(model_path), exist_ok=True)
-     epoch_model_path = model_path.replace(".pth", f"_epoch{epoch+1}.pth")
-     torch.save(model.state_dict(), epoch_model_path)
-     print(f"→ Model nach Epoche {epoch+1} gespeichert unter {epoch_model_path}")
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    epoch_model_path = model_path.replace(".pth", f"_epoch{epoch+1}.pth")
+    torch.save(model.state_dict(), epoch_model_path)
+    print(f"→ Model nach Epoche {epoch+1} gespeichert unter {epoch_model_path}")
  
      # als W&B Artifact hochladen (optional)
-     art = wandb.Artifact(f"{run_name}_epoch{epoch+1}", type="model")
-     art.add_file(epoch_model_path)
-     wandb.log_artifact(art)
+    art = wandb.Artifact(f"{run_name}_epoch{epoch+1}", type="model")
+    art.add_file(epoch_model_path)
+    wandb.log_artifact(art)
 
-# Save and log every epoch -------------------------------------------------------------------------------
-# --- nach deiner Validierung und dem Logging der Metriken, am Ende der for-epoch-Schleife ---
-
-# 1) Pfad für diesen Epoch-Checkpoint
-epoch_model_path = f"results/trained_models/v1_mha/model_epoch{epoch+1}.pth"
-os.makedirs(os.path.dirname(epoch_model_path), exist_ok=True)
-
-# 2) Speichern des State Dicts
-torch.save(model.state_dict(), epoch_model_path)
-print(f"→ Modell nach Epoche {epoch+1} gespeichert unter {epoch_model_path}")
-
-# 3) Als W&B-Artifact hochladen
-artifact = wandb.Artifact(
-    name=f"model_epoch_{epoch+1}", 
-    type="model"
-)
-artifact.add_file(epoch_model_path)
-wandb.log_artifact(artifact)
 wandb.finish()
 print(wandb.config)
