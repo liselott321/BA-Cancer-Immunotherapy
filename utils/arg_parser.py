@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--weight_decay', type=float, help='Weight decay value for optimizer')
     parser.add_argument('--dropout', type=float, help='Dropout value for TCR_Epitope_transformer class')
     parser.add_argument("--penalty_weight", type=float, help="Weight for confidence penalty term")
+    parser.add_argument('--classifier_hidden_dim', type=int, help='Hidden dimension for the classifier head')
     
     # Model Parameters
     parser.add_argument('--embed_dim', type=int, help='Embedding dimension')
