@@ -241,7 +241,7 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 min_epochs = required_epochs 
-patience = 2
+patience = 3
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
