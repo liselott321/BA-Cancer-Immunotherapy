@@ -504,7 +504,6 @@ for epoch in range(epochs):
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
     torch.save(model.state_dict(), model_epoch_path)
     print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
-
     wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
