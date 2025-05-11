@@ -37,10 +37,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-<<<<<<< HEAD
-penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
-=======
->>>>>>> 7d7e7d0489d80a4c72b4e38402d76c4201e5099d
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
