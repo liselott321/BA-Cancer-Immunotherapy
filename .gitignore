@@ -201,3 +201,4 @@ results/trained_models/*.pth
 results/trained_models/v1_mha/v2/
 nohup.out
 WnB_Experiments_Datasets/
+results/trained_models/v1_mha/
