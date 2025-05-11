@@ -1,0 +1,29 @@
+epochs: 15
+batch_size: 128
+# batch_size vlt 256 -> sollte Gradienten stabilisieren
+learning_rate: 0.0003
+embed_dim: 128
+weight_decay: 0.0001 
+attn_dropout: 0.2
+ffn_dropout: 0.3
+res_dropout: 0.25
+num_heads: 2
+num_layers: 1
+max_tcr_length: 43
+max_epitope_length: 43
+penalty_weight: 0.1
+classifier_hidden_dim: 128
+model_path: "results/trained_models/v1_mha/v1_hopefully_no_overfitting.pth"
+data_paths:
+  train: "../../data/splitted_datasets/allele/beta/train.tsv"
+  val: "../../data/splitted_datasets/allele/beta/validation.tsv"
+  test: "../../data/splitted_datasets/allele/beta/test.tsv"
+embeddings:
+  tcr: "../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
+  epitope: "../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"
+  tcr_train: "../data/embeddings/beta/allele/dimension_1024/padded_train_tcr_embeddings_final.h5"
+  epitope_train: "../data/embeddings/beta/allele/dimension_1024/padded_train_epitope_embeddings_final.h5"
+  tcr_valid: "../data/embeddings/beta/allele/dimension_1024/padded_valid_tcr_embeddings_final.h5"
+  epitope_valid: "../data/embeddings/beta/allele/dimension_1024/padded_valid_epitope_embeddings_final.h5"
+  tcr_test: "../data/embeddings/beta/allele/dimension_1024/padded_test_tcr_embeddings_final.h5"
+  epitope_test: "../data/embeddings/beta/allele/dimension_1024/padded_test_epitope_embeddings_final.h5"
