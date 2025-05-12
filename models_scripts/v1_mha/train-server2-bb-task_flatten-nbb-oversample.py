@@ -24,7 +24,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset # v1_mha_1024_only_res_flatten
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from utils.arg_parser_serv1 import * # pars_args
+from utils.arg_parser import * # pars_args
 
 args = parse_args()
 
@@ -32,6 +32,7 @@ args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
+'''
 epochs = args.epochs if args.epochs else config['epochs']
 batch_size = args.batch_size if args.batch_size else wandb.config.get("batch_size", config["batch_size"])
 print(f'Batch size: {batch_size}')
@@ -42,7 +43,16 @@ print(f'Classifier hidden dim: {classifier_hidden_dim}')
 
 dropout = args.dropout if args.dropout else wandb.config.get("dropout", config.get("dropout", 0.1))
 num_heads = args.num_heads if args.num_heads else wandb.config.get("num_heads", config.get("num_heads", 4))
-num_layers = args.num_layers if args.num_layers else wandb.config.get("num_layers", config.get("num_layers", 1))
+num_layers = args.num_layers if args.num_layers else wandb.config.get("num_layers", config.get("num_layers", 1))'''
+
+# Lade Basiswerte nur aus args/config – noch kein wandb.config.get()
+epochs = args.epochs if args.epochs else config['epochs']
+batch_size = args.batch_size if args.batch_size else config["batch_size"]
+learning_rate = args.learning_rate if args.learning_rate else config["learning_rate"]
+classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else config.get("classifier_hidden_dim", 128)
+dropout = args.dropout if args.dropout else config.get("dropout", 0.1)
+num_heads = args.num_heads if args.num_heads else config.get("num_heads", 4)
+num_layers = args.num_layers if args.num_layers else config.get("num_layers", 1)
 
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
@@ -206,7 +216,6 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 patience = 3
-min_epochs = 3
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -485,6 +494,14 @@ for epoch in range(epochs):
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
+    # --- Modell nach jeder Epoche speichern ---
+    model_save_dir = "results/trained_models/v1_mha/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
