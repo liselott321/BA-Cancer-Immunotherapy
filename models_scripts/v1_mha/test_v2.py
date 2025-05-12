@@ -5,13 +5,16 @@ import torch
 import h5py
 import yaml
 import sys
-from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, average_precision_score, precision_score, recall_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, log_loss, accuracy_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import wandb
 import seaborn as sns
 import matplotlib.pyplot as plt
 import io
+from sklearn.calibration import calibration_curve
+import torch.nn as nn
+import torch.optim as optim
 
 # Local imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -41,7 +44,7 @@ test_path = f"{data_dir}/allele/test.tsv"
 train_file_path = f"{data_dir}/allele/train.tsv"
 
 # ========== Download model from wandb ==========
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_model:v23"
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2_model:v1"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
