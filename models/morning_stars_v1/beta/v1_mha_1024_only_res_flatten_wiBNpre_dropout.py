@@ -26,7 +26,7 @@ class Classifier(nn.Module):
             #nn.ReLU(),
             #nn.Dropout(dropout),
             ResidualBlock(input_dim, res_dropout),
-            #nn.Linear(input_dim, 1)
+            nn.Linear(input_dim, 1)
         )
 
     def forward(self, x):

@@ -1,3 +1,8 @@
+
+
+
+
+
 # Byte-compiled / optimized / DLL files
 
 
@@ -196,9 +201,9 @@ results/trained_models/v1_mha/v1_mha_1024.pth
 
 *.png
 *.tsv
-
+*.pt
 results/trained_models/*.pth
 results/trained_models/v1_mha/v2/
 nohup.out
-nohup.out
-results/trained_models/v1_mha/v2/
+WnB_Experiments_Datasets/
+results/trained_models/v1_mha/
