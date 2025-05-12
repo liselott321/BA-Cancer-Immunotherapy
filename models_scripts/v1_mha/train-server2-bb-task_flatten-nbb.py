@@ -37,10 +37,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-<<<<<<< HEAD
-penalty_weight = args.penalty_weight if args.penalty_weight else wandb.config.get("penalty_weight", 0.1)
-=======
->>>>>>> 7d7e7d0489d80a4c72b4e38402d76c4201e5099d
 
 # print(epochs,'\n', batch_size,'\n', learning_rate)
 
@@ -245,7 +241,7 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 min_epochs = required_epochs 
-patience = 2
+patience = 3
 global_step = 0
 
 # Training Loop ---------------------------------------------------------------
@@ -525,6 +521,14 @@ for epoch in range(epochs):
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
+    # --- Modell nach jeder Epoche speichern ---
+    model_save_dir = "results/trained_models/v1_mha/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:

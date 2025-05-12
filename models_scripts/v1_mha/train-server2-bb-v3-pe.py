@@ -16,6 +16,7 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
@@ -503,6 +504,15 @@ for epoch in range(epochs):
     if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
+
+    # --- Modell nach jeder Epoche speichern ---
+    model_save_dir = "results/trained_models/v1_mha/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:

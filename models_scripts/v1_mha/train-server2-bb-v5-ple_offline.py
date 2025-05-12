@@ -273,11 +273,11 @@ for epoch in range(epochs):
             tcr, epitope, tcr_ple, epi_ple, label = (
                 tcr.to(device),
                 epitope.to(device),
-                tcr_phys.to(device),
-                epi_phys.to(device),
+                tcr_ple.to(device),
+                epi_ple.to(device),
                 label.to(device),
             )
-            output = model(tcr, epitope, tcr_phys, epi_phys)
+            output = model(tcr, epitope, tcr_ple, epi_ple)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
