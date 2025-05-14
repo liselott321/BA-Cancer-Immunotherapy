@@ -51,9 +51,9 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v1_hopefully_no_overfitting"
+MODEL_NAME = "v1_hopefully_no_overfitting_HT"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}_flattened"
+run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}_dropout_HT"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Logge Hyperparameter explizit
@@ -110,54 +110,39 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class RotatingFullCoverageSampler:
-    def __init__(self, dataset, labels, batch_size=32):
+class OversampledFullDataset:
+    def __init__(self, dataset, labels):
         self.dataset = dataset
         self.labels = np.array(labels)
-        self.batch_size = batch_size
-
         self.pos_indices = np.where(self.labels == 1)[0]
         self.neg_indices = np.where(self.labels == 0)[0]
 
-        self.pos_pointer = 0
-        self.neg_pointer = 0
+    def build_oversampled_indices(self):
+        num_neg = len(self.neg_indices)
+        num_pos = len(self.pos_indices)
 
-        np.random.shuffle(self.pos_indices)
-        np.random.shuffle(self.neg_indices)
+        additional_pos_indices = np.random.choice(
+            self.pos_indices, size=num_neg - num_pos, replace=True
+        )
+        final_indices = np.concatenate([
+            self.neg_indices,
+            self.pos_indices,
+            additional_pos_indices
+        ])
+        np.random.shuffle(final_indices)
+        return final_indices
 
-    def get_loader(self):
-        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
-
-        if chunk_size == 0:
-            # Reset when everything has been used at least once
-            self.pos_pointer = 0
-            self.neg_pointer = 0
-            np.random.shuffle(self.pos_indices)
-            np.random.shuffle(self.neg_indices)
-            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
-
-        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
-        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
-
-        self.pos_pointer += chunk_size
-        self.neg_pointer += chunk_size
-
-        combined = np.concatenate([sampled_pos, sampled_neg])
-        np.random.shuffle(combined)
-
-        subset = Subset(self.dataset, combined)
-        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
-
+    def get_loader(self, batch_size=32):
+        indices = self.build_oversampled_indices()
+        subset = Subset(self.dataset, indices)
+        return DataLoader(subset, batch_size=batch_size, shuffle=True)
+        
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
-max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
-required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
-print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
 train_labels = train_data['Binding'].values
-balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
-
+balanced_generator = OversampledFullDataset(train_dataset, train_labels)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -186,43 +171,6 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-def confidence_penalty(logits, penalty_weight=0.1):
-    probs = torch.sigmoid(logits)
-    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
-    uniform = torch.full_like(probs, 0.5)
-    
-    # KL divergence term
-    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
-
-    # Schutz gegen NaNs
-    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return penalty_weight * kl_div.mean()
-
-'''class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
-
-    def forward(self, inputs, targets):
-        bce_loss = self.bce(inputs, targets)
-        probs = torch.sigmoid(inputs)
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
-
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
@@ -242,7 +190,6 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-min_epochs = required_epochs 
 patience = 3
 global_step = 0
 
@@ -259,7 +206,6 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
-        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
@@ -509,16 +455,37 @@ for epoch in range(epochs):
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
     
 
-     # ==== Modell speichern nach jeder Epoche ====
+    # Early Stopping: nur auf multiples von `min_epochs` schauen
+    if ap > best_ap:
+        best_ap = ap
+        best_model_state = model.state_dict()
+        early_stop_counter = 0
+    else:
+        early_stop_counter += 1
+        print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
+
+    if early_stop_counter >= patience:
+        print(f"Early stopping triggered at epoch {epoch+1}.")
+        break
+'''
+    # --- Modell nach jeder Epoche speichern ---
+    model_save_dir = "results/trained_models/v1_dropout_HT/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f" Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    wandb.save(model_epoch_path)
+'''
+# Save best model -------------------------------------------------------------------------------
+if best_model_state:
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    epoch_model_path = model_path.replace(".pth", f"_epoch{epoch+1}.pth")
-    torch.save(model.state_dict(), epoch_model_path)
-    print(f"→ Model nach Epoche {epoch+1} gespeichert unter {epoch_model_path}")
- 
-     # als W&B Artifact hochladen (optional)
-    art = wandb.Artifact(f"{run_name}_epoch{epoch+1}", type="model")
-    art.add_file(epoch_model_path)
-    wandb.log_artifact(art)
+    torch.save(best_model_state, model_path)
+    print("Best model saved with AP:", best_ap, "saved to {model_path}")
+
+    artifact = wandb.Artifact(run_name + "_model", type="model")
+    artifact.add_file(model_path)
+    wandb.log_artifact(artifact)
 
 wandb.finish()
 print(wandb.config)

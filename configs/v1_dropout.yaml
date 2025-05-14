@@ -13,11 +13,11 @@ max_tcr_length: 43
 max_epitope_length: 43
 penalty_weight: 0.1
 classifier_hidden_dim: 128
-model_path: "results/trained_models/v1_mha/v1_hopefully_no_overfitting.pth"
+model_path: "results/trained_models/v1_mha/v1_hopefully_no_overfitting_HT.pth"
 data_paths:
-  train: "../../data/splitted_datasets/allele/beta/train.tsv"
-  val: "../../data/splitted_datasets/allele/beta/validation.tsv"
-  test: "../../data/splitted_datasets/allele/beta/test.tsv"
+  train: "../data/splitted_datasets/allele/beta/train.tsv"
+  val: "../data/splitted_datasets/allele/beta/validation.tsv"
+  test: "../data/splitted_datasets/allele/beta/test.tsv"
 embeddings:
   tcr: "../data/embeddings/beta/allele/padded/padded_tcr_embeddings_final.h5"
   epitope: "../data/embeddings/beta/allele/padded/padded_epitope_embeddings_final.h5"
