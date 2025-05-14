@@ -70,7 +70,7 @@ print(f"[INFO] Feature-Matrix: {desc_df.shape[0]}×{desc_df.shape[1]}")
 # 8) Mapping-Datei speichern (optional, zum Nachschlagen)
 mapping = df_physchem[["TRB_CDR3", "Epitope"]].copy()
 mapping["idx"] = np.arange(len(mapping))
-mapping_path = "../../../data/physico/ple/physchem_raw_mapping.tsv"
+mapping_path = "../../data/physico/ple/physchem_raw_mapping.tsv"
 mapping.to_csv(mapping_path, sep="\t", index=False)
 print(f"[INFO] Mapping gespeichert nach `{mapping_path}`")
 
@@ -86,7 +86,7 @@ print(f"[INFO] labels  shape = {labels.shape}")
 
 # %%
 # 10) In HDF5 schreiben
-output_path = "../../../data/physico/ple/descriptor_physchem_raw.h5"
+output_path = "../../data/physico/ple/descriptor_physchem_raw.h5"
 with h5py.File(output_path, "w") as h5f:
     h5f.create_dataset("tcr_raw",   data=tcr_arr,  compression="gzip")
     h5f.create_dataset("epi_raw",   data=epi_arr,  compression="gzip")
