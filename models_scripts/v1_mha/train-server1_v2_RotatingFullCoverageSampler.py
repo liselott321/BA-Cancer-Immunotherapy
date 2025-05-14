@@ -539,9 +539,9 @@ if best_model_state:
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
-    artifact = wandb.Artifact(run_name + "_model", type="model")
+    artifact = wandb.Artifact(f"{run.name}_best_model", type="model")
     artifact.add_file(model_path)
-    wandb.log_artifact(artifact)
+    run.log_artifact(artifact, aliases=["best"])
 
 wandb.finish()
 print("Best Hyperparameters:")

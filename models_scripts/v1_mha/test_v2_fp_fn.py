@@ -43,12 +43,23 @@ data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
 test_path = f"{data_dir}/allele/test.tsv"
 train_file_path = f"{data_dir}/allele/train.tsv"
 
+
 # ========== Download model from wandb ==========
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2_model:v2"
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2h_best_model:v0"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
+'''
 
+# ========== Load best model locally ==========
+# Der Pfad, unter dem du dein bestes Model gespeichert hast
+model_file = os.path.expanduser(
+    "results/trained_models/v1_mha/v2.pth"
+)
+
+if not os.path.isfile(model_file):
+    raise FileNotFoundError(f"Kein Modell unter {model_file} gefunden")
+'''
 # ========== Load test data ==========
 print(f" Lade Testdaten: {test_path}")
 test_data = pd.read_csv(test_path, sep="\t")
@@ -103,7 +114,7 @@ model = TCR_Epitope_Transformer(
 
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
-print(f" Modell geladen von: {model_artifact.name}")
+#print(f" Modell geladen von: {model_artifact.name}")
 
 # ========== Evaluate ==========
 all_labels, all_outputs, all_preds = [], [], []
