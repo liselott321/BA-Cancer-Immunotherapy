@@ -21,7 +21,7 @@ from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v2_only_res_noBNpre_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
+from models.morning_stars_v1.beta.O__v0_simpleClassifier import SimpleTCRClassifier, LazyTCR_Epitope_Dataset #, TCR_Epitope_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -51,7 +51,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v2"
+MODEL_NAME = "v0_simplyClassifier"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -197,14 +197,14 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
+model = SimpleTCRClassifier(
     config['embed_dim'],
-    config['num_heads'],
-    config['num_layers'],
-    config['max_tcr_length'],
-    config['max_epitope_length'],
-    dropout=config.get('dropout', 0.2), #dropout angepasst
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64),
+    # config['num_heads'],
+    # config['num_layers'],
+    # config['max_tcr_length'],
+    # config['max_epitope_length'],
+    # dropout=config.get('dropout', 0.2), #dropout angepasst
+    hidden_dim=config.get('classifier_hidden_dim', 64),
     trbv_vocab_size=trbv_vocab_size,
     trbj_vocab_size=trbj_vocab_size,
     mhc_vocab_size=mhc_vocab_size
@@ -539,9 +539,9 @@ if best_model_state:
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
-    artifact = wandb.Artifact(f"{run.name}_best_model", type="model")
+    artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
-    run.log_artifact(artifact, aliases=["best"])
+    wandb.log_artifact(artifact)
 
 wandb.finish()
 print("Best Hyperparameters:")
