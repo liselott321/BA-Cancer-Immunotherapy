@@ -4,7 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Argument parser for TCR-Epitope prediction model")
     
     # Paths
-    parser.add_argument('--configs_path', type=str, default='./configs/v1_mha_1024_config-serv1.yaml', help='Path to configuration file')
+    parser.add_argument('--configs_path', type=str, default='./configs/v1_dropout.yaml', help='Path to configuration file')
     parser.add_argument('--train', type=str, help='Path to training dataset')
     parser.add_argument('--val', type=str, help='Path to validation dataset')
     parser.add_argument('--test', type=str, help='Path to testing dataset')
@@ -28,7 +28,9 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, help='Learning rate')
     parser.add_argument('--optimizer', type=str, choices=['adam', 'sgd'], help='Optimizer to use')
     parser.add_argument('--weight_decay', type=float, help='Weight decay value for optimizer')
-    parser.add_argument('--dropout', type=float, help='Dropout value for TCR_Epitope_transformer class')
+    parser.add_argument('--attn_dropout', type=float, help='Dropout value for Multi Attention')
+    parser.add_argument('--ffn_dropout', type=float, help='Dropout value for TCR_Epitope_transformer class')
+    parser.add_argument('--res_dropout', type=float, help='Dropout value for Residual Block')
     parser.add_argument("--penalty_weight", type=float, help="Weight for confidence penalty term")
     
     # Model Parameters

@@ -13,7 +13,7 @@ max_tcr_length: 43
 max_epitope_length: 43
 penalty_weight: 0.1
 classifier_hidden_dim: 128
-model_path: "results/trained_models/v1_mha/v1_hopefully_no_overfitting.pth"
+model_path: "results/trained_models/v1_mha/v1_hopefully_no_overfitting_HT.pth"
 data_paths:
   train: "../data/splitted_datasets/allele/beta/train.tsv"
   val: "../data/splitted_datasets/allele/beta/validation.tsv"
