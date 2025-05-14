@@ -512,21 +512,34 @@ for epoch in range(epochs):
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
+    # Modell nach jeder Epoche speichern (aktueller Zustand)
+    current_model_path = "results/trained_models/v5/model.pt"
+    os.makedirs("results/trained_models/v5", exist_ok=True)
+    torch.save(model.state_dict(), current_model_path)
+
+    # Logge als neues Artefakt bei W&B (wird automatisch versioniert: v0, v1, ...)
+    artifact = wandb.Artifact(run_name + "_model", type="model")
+    artifact.add_file(current_model_path)
+    wandb.log_artifact(artifact)
+
     # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
     if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
+
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v3_mha_res", exist_ok=True)
-    torch.save(best_model_state, model_path)
+    best_model_path = "results/trained_models/v5/best_model.pt"
+    torch.save(best_model_state, best_model_path)
     print("Best model saved with AP:", best_ap)
 
-    artifact = wandb.Artifact(run_name + "_model", type="model")
-    artifact.add_file(model_path)
-    wandb.log_artifact(artifact)
+    # Logge bestes Modell separat als Artefakt
+    best_artifact = wandb.Artifact(run_name + "_best_model", type="model")
+    best_artifact.add_file(best_model_path)
+    wandb.log_artifact(best_artifact)
 
+# Finish Logging
 wandb.finish()
 print("Best Hyperparameters:")
 print(wandb.config)

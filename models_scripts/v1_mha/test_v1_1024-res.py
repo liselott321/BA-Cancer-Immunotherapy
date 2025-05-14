@@ -77,7 +77,7 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v28" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_mha_1024h_flattened_model:v33" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -217,8 +217,8 @@ fp_df["predicted_label"] = all_preds[false_positive_indices]
 # Speichern
 os.makedirs("results", exist_ok=True)
 #fp_df.to_csv("results/false_positives_v1oversample.csv", sep="\t", index=False)
-fp_df.to_csv("results/false_positives_v1frbce_aug.csv", sep="\t", index=False)
+fp_df.to_csv("results/false_positives_v1frbce_fp.csv", sep="\t", index=False)
 
-print(f"\n📄 {len(fp_df)} False Positives gespeichert unter: results/false_positives.csv")
+print(f"\n📄 {len(fp_df)} False Positives gespeichert")
 
 wandb.finish()
