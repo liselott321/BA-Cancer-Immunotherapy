@@ -1,9 +1,9 @@
 import numpy as np
 import h5py
 
-RAW_H5     = "../../../data/physico/ple/descriptor_physchem_raw.h5"
-EDGES_NPY  = "../../../data/physico/ple/physchem_PLE_edges_T.npy"
-PLE_H5_OUT = "../../../data/physico/ple/descriptor_physchem_ple.h5"
+RAW_H5     = "../../data/physico/ple/descriptor_physchem_raw.h5"
+EDGES_NPY  = "../../data/physico/ple/physchem_PLE_edges_T.npy"
+PLE_H5_OUT = "../../data/physico/ple/descriptor_physchem_ple.h5"
 
 # 1) Raw laden
 with h5py.File(RAW_H5, "r") as f:
@@ -41,4 +41,4 @@ with h5py.File(PLE_H5_OUT, "w") as f:
     f.create_dataset("epi_ple",  data=epi_ple,  compression="gzip")
     f.create_dataset("binding",  data=labels,   compression="gzip")
 
-print(f"✅ PLE‐Embedding gespeichert in `{PLE_H5_OUT}`")
+print(f" PLE‐Embedding gespeichert in `{PLE_H5_OUT}`")
