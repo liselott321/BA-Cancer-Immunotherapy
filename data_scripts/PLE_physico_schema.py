@@ -3,7 +3,7 @@ import h5py
 from sklearn.model_selection import train_test_split
 
 # 1) lade raw-Deskriptoren
-with h5py.File("../../../data/physico/ple/descriptor_physchem_raw.h5","r") as f:
+with h5py.File("../../data/physico/ple/descriptor_physchem_raw.h5","r") as f:
     X_tcr = f["tcr_raw"][:]   # (N, D)
     X_epi = f["epi_raw"][:]   # (N, D)
 X = np.hstack([X_tcr, X_epi]).astype(np.float32)  # (N, D_total)
@@ -20,4 +20,4 @@ for d in range(D):
     edges[d] = np.quantile(X_train[:,d], qs)
 
 # 4) speichern
-np.save("../../../data/physico/ple/physchem_PLE_edges_T.npy", edges)
+np.save("../../data/physico/ple/physchem_PLE_edges_T.npy", edges)
