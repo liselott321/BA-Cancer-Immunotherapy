@@ -138,10 +138,8 @@ class LazyFullFeatureDataset(torch.utils.data.Dataset):
 
         tcr_embedding = self.tcr_embeddings[tcr_id][:]
         epitope_embedding = self.epitope_embeddings[epitope_id][:]
-        # tcr_physchem = self.physchem_data["tcr_encoded"][phys_idx]
-        # epi_physchem = self.physchem_data["epi_encoded"][phys_idx]
-        tcr_physchem = self.physchem_data["tcr_encoded"][int(phys_idx)]  # Convert to int   
-        epi_physchem = self.physchem_data["epi_encoded"][int(phys_idx)]
+        tcr_physchem = self.physchem_data["tcr_encoded"][phys_idx]   
+        epi_physchem = self.physchem_data["epi_encoded"][phys_idx]
         trbv_index = sample["TRBV_Index"]
         trbj_index = sample["TRBJ_Index"]
         mhc_index = sample["MHC_Index"]
