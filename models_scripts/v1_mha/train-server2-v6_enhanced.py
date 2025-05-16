@@ -41,7 +41,9 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-physchem_path = config['embeddings']['physchem']
+# physchem_path = config['embeddings']['physchem']
+physchem_path= "../../data/physico/descriptor_encoded_physchem.h5"
+
 physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
@@ -130,7 +132,9 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-with h5py.File(config['embeddings']['physchem'], 'r') as f:
+emb_physchem_path = "../../data/physico/descriptor_encoded_physchem.h5"  # change if not server 1
+
+with h5py.File(emb_physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
 
 # ------------------------------------------------------------------
