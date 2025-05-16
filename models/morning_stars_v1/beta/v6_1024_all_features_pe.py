@@ -70,10 +70,6 @@ class CrossAttentionBlock(nn.Module):
         )
         return self.norm(epitope_emb + self.dropout(attn_out))
 
-    # def forward(self, tcr_emb, epitope_emb):
-    #     attn_out, _ = self.cross_attn(epitope_emb, tcr_emb, tcr_emb)
-    #     return self.norm(epitope_emb + self.dropout(attn_out))
-
 class PeriodicEmbedding(nn.Module):
     def __init__(self, input_dim):
         super().__init__()
