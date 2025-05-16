@@ -74,7 +74,7 @@ model = TCR_Epitope_Transformer(
 
 # Modell von wandb laden
 # Modell von lokaler Datei laden (Epoche 7)
-model_file = "results/trained_models/v1_mha/epochs/model_epoch_7.pt"
+model_file = "results/trained_models/v1_mha/epochs/model_epoch_12.pt" #19
 print(f"Lade Modell aus lokaler Datei: {model_file}")
 
 
@@ -213,7 +213,7 @@ fp_df["predicted_label"] = all_preds[false_positive_indices]
 # Speichern
 os.makedirs("results", exist_ok=True)
 #fp_df.to_csv("results/false_positives_v1oversample.csv", sep="\t", index=False)
-fp_df.to_csv("results/false_positives_v1frbce_aug1000.csv", sep="\t", index=False)
+fp_df.to_csv("results/false_positives_v1frbce_aug5012.csv", sep="\t", index=False)
 
 print(f"\n📄 {len(fp_df)} False Positives gespeichert")
 

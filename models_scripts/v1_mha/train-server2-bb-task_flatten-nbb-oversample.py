@@ -102,6 +102,12 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
+'''aug_file = "augmented_negatives_tpp12.tsv"
+if os.path.exists(aug_file):
+    aug_data = pd.read_csv(aug_file, sep="\t")
+    print(f"➕ {len(aug_data)} augmentierte TPP2-Negative geladen.")
+    train_data = pd.concat([train_data, aug_data], ignore_index=True)'''
+
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
