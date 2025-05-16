@@ -64,7 +64,8 @@ for df, name, tcr_dict in [
             return 0.0
         return max(ratio(row["Epitope"], p) for p in positives)
         
-    neg = df[(df["source"]=="generated") & (df["Binding"]==0)].copy()
+    #neg = df[(df["source"]=="10X") & (df["Binding"]==0)].copy()
+    neg = df[df["Binding"]==0].copy()
     print(f"\n{name} – generierte Negatives:", len(neg))
 
     neg["max_pos_sim"] = neg.apply(max_sim, axis=1)
@@ -78,7 +79,7 @@ for df, name, tcr_dict in [
     plt.xlabel("Similarity-Ratio")
     plt.ylabel("Count")
     plt.legend()
-    fn = f"sim_new_{name}.png"
+    fn = f"sim_new_{name}_allneg.png"
     plt.savefig(fn, bbox_inches="tight")
     plt.close()
     print(f"  → Plot gespeichert: {fn}")

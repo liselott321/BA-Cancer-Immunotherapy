@@ -84,7 +84,7 @@ model = TCR_Epitope_Transformer(
 ).to(device)
 
 
-# Modell von wandb laden
+'''# Modell von wandb laden
 print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
@@ -97,7 +97,10 @@ model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
 # Gewichte ins Modell laden
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
-print("✅ Modell geladen:", artifact.name)
+print("✅ Modell geladen:", artifact.name)'''
+
+model_file = "results/trained_models/v1_mha/physico/model_epoch_4.pt" #3
+print(f"Lade Modell aus lokaler Datei: {model_file}")
 
 
 # Testdurchlauf
