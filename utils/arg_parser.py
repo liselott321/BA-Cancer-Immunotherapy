@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument('--ple_path', type=str, default=None, help='Pfad zur PLE HDF5 Datei')
     parser.add_argument("--descriptor_path", type=str, help="Pfad zu den globalen Deskriptor-Features (HDF5)")
     parser.add_argument('--artifact_name', type=str, help='Path to best model to test')
+    parser.add_argument('--model_epoch_to_test', type=str, help='Path to best model to test')
 
     
     # Training Parameters
