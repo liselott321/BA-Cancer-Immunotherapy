@@ -42,8 +42,7 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
 # physchem_path = config['embeddings']['physchem']
-physchem_path= "../../data/physico/descriptor_encoded_physchem.h5"
-
+physchem_path= "../../../../data/physico/descriptor_encoded_physchem.h5"
 physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
@@ -87,7 +86,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 
 # Per Sequenz joinen
 train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
@@ -132,10 +131,11 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-emb_physchem_path = "../../data/physico/descriptor_encoded_physchem.h5"  # change if not server 1
+emb_physchem_path = "../../../../data/physico/descriptor_encoded_physchem.h5"  # change if not server 1
 
 with h5py.File(emb_physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
+
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
@@ -242,19 +242,26 @@ best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
 min_epochs = required_epochs 
-patience = 5
+patience = 4
 global_step = 0
 
-# Function to save model checkpoint to wandb
-def save_checkpoint(model, epoch, metrics, checkpoint_dir):
+# Function to save model checkpoint to wandb - FIXED VERSION
+def save_checkpoint(model, epoch, optimizer, scheduler=None):
+    """Save model checkpoint with only serializable components"""
     checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt")
+    
+    # Only save the essential components that are serializable
     checkpoint = {
         'epoch': epoch + 1,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
-        'metrics': metrics
     }
+    
+    # Add scheduler state if it exists
+    if scheduler is not None:
+        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
+    
+    # Save the checkpoint
     torch.save(checkpoint, checkpoint_path)
     
     # Log checkpoint to wandb
@@ -375,7 +382,7 @@ for epoch in range(epochs):
     wandb.log({"roc_curve": wandb.Image(roc_curve_path)}, step=global_step, commit=False)
     plt.close()
 
-    epoch_metrics = {
+    wandb.log({
         "epoch": epoch + 1,
         "train_loss_epoch": epoch_loss / len(train_loader),
         "val_loss": val_loss_total / len(val_loader),
@@ -395,12 +402,9 @@ for epoch in range(epochs):
             y_true=all_labels,
             preds=all_preds,
             class_names=["Not Binding", "Binding"])
-    }
-    
-    wandb.log(epoch_metrics, step=global_step, commit=False)
+    }, step=global_step, commit=False)
 
     # ===== TPP1–TPP4 Auswertung im Validierungsset =====
-    tpp_metrics = {}
     if "task" in val_data.columns:
         all_tasks = val_data["task"].values
 
@@ -445,7 +449,6 @@ for epoch in range(epochs):
                 if tpp_ap is not None:
                     log_dict[f"val_{tpp}_ap"] = tpp_ap
 
-                tpp_metrics.update(log_dict)
                 wandb.log(log_dict, step=global_step, commit=False)
 
                 wandb.log({
@@ -474,9 +477,8 @@ for epoch in range(epochs):
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
     
-    # Save model checkpoint after each epoch
-    combined_metrics = {**epoch_metrics, **tpp_metrics}
-    checkpoint_path = save_checkpoint(model, epoch, combined_metrics, checkpoint_dir)
+    # Save model checkpoint after each epoch (FIXED VERSION)
+    checkpoint_path = save_checkpoint(model, epoch, optimizer, scheduler)
     print(f"Saved checkpoint for epoch {epoch+1} to {checkpoint_path}")
 
     # Early Stopping: nur auf multiples von `min_epochs` schauen
