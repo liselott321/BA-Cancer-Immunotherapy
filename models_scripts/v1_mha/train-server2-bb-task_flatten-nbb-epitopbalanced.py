@@ -32,27 +32,13 @@ args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
-'''
 epochs = args.epochs if args.epochs else config['epochs']
-batch_size = args.batch_size if args.batch_size else wandb.config.get("batch_size", config["batch_size"])
+batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
-learning_rate = args.learning_rate if args.learning_rate else wandb.config.get("learning_rate", config["learning_rate"])
+learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else wandb.config.get("classifier_hidden_dim", config.get("classifier_hidden_dim", 128))
-print(f'Classifier hidden dim: {classifier_hidden_dim}')
 
-dropout = args.dropout if args.dropout else wandb.config.get("dropout", config.get("dropout", 0.1))
-num_heads = args.num_heads if args.num_heads else wandb.config.get("num_heads", config.get("num_heads", 4))
-num_layers = args.num_layers if args.num_layers else wandb.config.get("num_layers", config.get("num_layers", 1))'''
-
-# Lade Basiswerte nur aus args/config – noch kein wandb.config.get()
-epochs = args.epochs if args.epochs else config['epochs']
-batch_size = args.batch_size if args.batch_size else config["batch_size"]
-learning_rate = args.learning_rate if args.learning_rate else config["learning_rate"]
-classifier_hidden_dim = args.classifier_hidden_dim if args.classifier_hidden_dim else config.get("classifier_hidden_dim", 128)
-dropout = args.dropout if args.dropout else config.get("dropout", 0.1)
-num_heads = args.num_heads if args.num_heads else config.get("num_heads", 4)
-num_layers = args.num_layers if args.num_layers else config.get("num_layers", 1)
+# print(epochs,'\n', batch_size,'\n', learning_rate)
 
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
@@ -102,6 +88,12 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
+'''aug_file = "augmented_negatives_tpp12.tsv"
+if os.path.exists(aug_file):
+    aug_data = pd.read_csv(aug_file, sep="\t")
+    print(f"➕ {len(aug_data)} augmentierte TPP2-Negative geladen.")
+    train_data = pd.concat([train_data, aug_data], ignore_index=True)'''
+
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
@@ -119,44 +111,73 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+#-------------------------------------------------------------------
+def subsample_epitope_balanced(df, max_per_class=100):
+    rows = []
+    for epitope, group in df.groupby("Epitope"):
+        for label in [0, 1]:  # Negative & Positive separat
+            group_label = group[group["Binding"] == label]
+            if len(group_label) > max_per_class:
+                sampled = group_label.sample(max_per_class, random_state=42)
+            else:
+                sampled = group_label
+            rows.append(sampled)
+    return pd.concat(rows).reset_index(drop=True)
+
+train_data = subsample_epitope_balanced(train_data, max_per_class=100)
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class OversampledFullDataset:
-    def __init__(self, dataset, labels):
+class RotatingFullCoverageSampler:
+    def __init__(self, dataset, labels, batch_size=32):
         self.dataset = dataset
         self.labels = np.array(labels)
+        self.batch_size = batch_size
+
         self.pos_indices = np.where(self.labels == 1)[0]
         self.neg_indices = np.where(self.labels == 0)[0]
 
-    def build_oversampled_indices(self):
-        num_neg = len(self.neg_indices)
-        num_pos = len(self.pos_indices)
+        self.pos_pointer = 0
+        self.neg_pointer = 0
 
-        additional_pos_indices = np.random.choice(
-            self.pos_indices, size=num_neg - num_pos, replace=True
-        )
-        final_indices = np.concatenate([
-            self.neg_indices,
-            self.pos_indices,
-            additional_pos_indices
-        ])
-        np.random.shuffle(final_indices)
-        return final_indices
+        np.random.shuffle(self.pos_indices)
+        np.random.shuffle(self.neg_indices)
 
-    def get_loader(self, batch_size=32):
-        indices = self.build_oversampled_indices()
-        subset = Subset(self.dataset, indices)
-        return DataLoader(subset, batch_size=batch_size, shuffle=True)
-        
+    def get_loader(self):
+        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
+
+        if chunk_size == 0:
+            # Reset when everything has been used at least once
+            self.pos_pointer = 0
+            self.neg_pointer = 0
+            np.random.shuffle(self.pos_indices)
+            np.random.shuffle(self.neg_indices)
+            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
+
+        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
+        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
+
+        self.pos_pointer += chunk_size
+        self.neg_pointer += chunk_size
+
+        combined = np.concatenate([sampled_pos, sampled_neg])
+        np.random.shuffle(combined)
+
+        subset = Subset(self.dataset, combined)
+        return DataLoader(subset, batch_size=self.batch_size, shuffle=True)
+
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
+max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
+required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
+print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
 train_labels = train_data['Binding'].values
-balanced_generator = OversampledFullDataset(train_dataset, train_labels)
+balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
+
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -167,12 +188,12 @@ if device.type == "cuda":
 
 model = TCR_Epitope_Transformer(
     config['embed_dim'],
-    num_heads,
-    num_layers,
+    config['num_heads'],
+    config['num_layers'],
     config['max_tcr_length'],
     config['max_epitope_length'],
-    dropout=dropout,
-    classifier_hidden_dim=classifier_hidden_dim
+    dropout=config.get('dropout', 0.1),
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
@@ -182,6 +203,43 @@ pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+def confidence_penalty(logits, penalty_weight=0.1):
+    probs = torch.sigmoid(logits)
+    probs = torch.clamp(probs, min=1e-4, max=1 - 1e-4)  # etwas entspannter clampen
+    uniform = torch.full_like(probs, 0.5)
+    
+    # KL divergence term
+    kl_div = probs * torch.log(probs / uniform) + (1 - probs) * torch.log((1 - probs) / (1 - uniform))
+
+    # Schutz gegen NaNs
+    kl_div = torch.nan_to_num(kl_div, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return penalty_weight * kl_div.mean()
+
+'''class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        probs = torch.sigmoid(inputs)
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma
+        loss = focal_weight * bce_loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device) >> try o.5 gamma'''
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -202,6 +260,7 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
+min_epochs = required_epochs 
 patience = 3
 global_step = 0
 
@@ -218,6 +277,7 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = model(tcr, epitope)
         loss = criterion(output, label)
+        #loss += confidence_penalty(output) #für KL confidence penalty unhiden
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
         optimizer.step()
@@ -475,8 +535,9 @@ for epoch in range(epochs):
     else:
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
-
-    if early_stop_counter >= patience:
+    
+    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
+    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
