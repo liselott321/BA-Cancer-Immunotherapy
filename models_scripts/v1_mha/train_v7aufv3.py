@@ -20,7 +20,7 @@ from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v7_auf_v3 import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v7_auf_v3 import TCR_Epitope_Transformer_Reciprocal, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -177,15 +177,15 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
-    config['embed_dim'],
-    config['num_heads'],
-    config['num_layers'],
-    config['max_tcr_length'],
-    config['max_epitope_length'],
+
+model = TCR_Epitope_Transformer_Reciprocal(
+    embed_dim=config['embed_dim'],
+    num_heads=config['num_heads'],
+    max_tcr_length=config['max_tcr_length'],
+    max_epitope_length=config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
     physchem_dim=inferred_physchem_dim,
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64)
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
