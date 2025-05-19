@@ -20,7 +20,7 @@ from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # for use with subsets
-from models.morning_stars_v1.beta.v7 import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v7 import TCR_Epitope_Transformer_Reciprocal, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -189,7 +189,7 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
+model = TCR_Epitope_Transformer_Reciprocal(
     ple_dim=ple_dim,
     embed_dim=config['embed_dim'],
     num_heads=config['num_heads'],
