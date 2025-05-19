@@ -44,7 +44,7 @@ test_path = f"{data_dir}/allele/test.tsv"
 train_file_path = f"{data_dir}/allele/train.tsv"
 
 # ========== Download model from wandb ==========
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2_model:v1"
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2h_best_model:v1"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
