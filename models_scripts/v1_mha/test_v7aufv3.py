@@ -2,76 +2,61 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, log_loss
-from tqdm import tqdm
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score
 import matplotlib.pyplot as plt
 import pandas as pd
 import h5py
 import wandb
 import yaml
 import sys
-import seaborn as sns
-import io
-from sklearn.calibration import calibration_curve
-import torch.nn as nn
-import torch.optim as optim
+from tqdm import tqdm
 
-# Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
-#from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
 from models.morning_stars_v1.beta.v7_auf_v3 import TCR_Epitope_Transformer_Reciprocal, LazyTCR_Epitope_Descriptor_Dataset
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
 
-# Argumente & Config laden
 args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
-# Init wandb run
 run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v7aufv3",
+    name="Test_Run_v7",
     config=config
 )
 
-# Testdaten und Embedding-Pfade
-test_path = args.test if args.test else config['data_paths']['test']
-tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else config['embeddings']['tcr_test']
-epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else config['embeddings']['epitope_test']
-
-physchem_path = config['embeddings']['physchem']
-physchem_file = h5py.File(physchem_path, 'r')
-
 # --- W&B Testdaten laden ---
-# Beispiel: neu laden
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
-data_dir = artifact.download()
+data_dir = artifact.download("./WnB_Testdata")
 
 test_data = pd.read_csv(os.path.join(data_dir, "allele/test.tsv"), sep='\t')
 physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
-# Merge mit physchem_index
 test_data = pd.merge(test_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
 
+# --- Embeddings ---
 def load_h5_lazy(file_path):
     return h5py.File(file_path, 'r')
 
-print('Lade Embeddings...')
+tcr_test_path = args.tcr_test_embeddings or config['embeddings']['tcr_test']
+epitope_test_path = args.epitope_test_embeddings or config['embeddings']['epitope_test']
+physchem_path = config['embeddings']['physchem']
+physchem_file = h5py.File(physchem_path, 'r')
+
 tcr_test_embeddings = load_h5_lazy(tcr_test_path)
 epitope_test_embeddings = load_h5_lazy(epitope_test_path)
 
 with h5py.File(physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
 
-# Dataset & Dataloader
-test_dataset = LazyTCR_Epitope_Descriptor_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings, physchem_file)
+# --- Dataset & Loader ---
+test_dataset = LazyTCR_Epitope_Descriptor_Dataset(
+    test_data, tcr_test_embeddings, epitope_test_embeddings, physchem_file
+)
 test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
 
-# Modell aufsetzen
+# --- Modell laden ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = TCR_Epitope_Transformer_Reciprocal(
     embed_dim=config['embed_dim'],
@@ -83,14 +68,15 @@ model = TCR_Epitope_Transformer_Reciprocal(
     classifier_hidden_dim=config.get('classifier_hidden_dim', 64)
 ).to(device)
 
-
-model_file = "results/trained_models/v7_auf_v3/epochs/model_epoch_9.pt" #3
+# Fester Modellpfad
+model_file = "results/trained_models/v7_auf_v3/epochs/model_epoch_8.pt"
 print(f"Lade Modell aus lokaler Datei: {model_file}")
+model.load_state_dict(torch.load(model_file, map_location=device))
+model.eval()
 
 
 # Testdurchlauf
 all_labels, all_outputs, all_preds = [], [], []
-
 with torch.no_grad():
     for tcr, epitope, tcr_phys, epi_phys, label in tqdm(test_loader, desc="Testing"):
         tcr, epitope, tcr_phys, epi_phys, label = (
