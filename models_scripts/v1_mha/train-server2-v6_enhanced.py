@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # Import the enhanced model
-from models.morning_stars_v1.beta.v6_1024_all_features_enhanced import TCR_Epitope_Transformer_Enhanced, LazyFullFeatureDataset, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -54,7 +54,7 @@ os.makedirs(checkpoint_dir, exist_ok=True)
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_enhanced"
+MODEL_NAME = "v6_all_features_sameAttention"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -66,7 +66,7 @@ wandb.config.update({
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
     "use_checkpointing": True,  # Add new parameters for enhanced model
-    "bidirectional_cross_attention": True
+    "bidirectional_cross_attention": False
 })
 
 # Embeddings paths from config/args
