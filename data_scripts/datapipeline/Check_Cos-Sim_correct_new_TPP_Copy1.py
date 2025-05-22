@@ -24,9 +24,9 @@ tcr_to_pos_val = pos_val.to_dict()
 tcr_to_pos_test = pos_test.to_dict()
 tcr_to_pos = { **pos_val.to_dict(), **pos_test.to_dict() }
 
-# 4) Filter nur generierte Negatives
-neg_val  = val_df [(val_df["source"]=="generated") & (val_df["Binding"]==0)].copy()
-neg_test = test_df[(test_df["source"]=="generated") & (test_df["Binding"]==0)].copy()
+# 4) ALLE Negatives statt nur "generated"
+neg_val  = val_df [val_df["Binding"] == 0].copy()
+neg_test = test_df[test_df["Binding"] == 0].copy()
 
 # 5) Levenshtein-Ratio-Funktionen
 def levenshtein_distance(s1, s2):
@@ -54,37 +54,29 @@ for df in (neg_val, neg_test):
     df["max_pos_sim"] = df.apply(max_sim_to_own_positives, axis=1)
 
 # 7) Gruppierte Verteilung & Statistiken pro TPP
-for df, name, tcr_dict in [
-    (neg_test, "Test", tcr_to_pos_test),
-    (neg_val, "Validation", tcr_to_pos_val)
-]:
-    def max_sim(row):
-        positives = tcr_dict.get(row["TRB_CDR3"], ())
-        if not positives:
-            return 0.0
-        return max(ratio(row["Epitope"], p) for p in positives)
-        
+for df, name in [(neg_val, "Validation"), (neg_test, "Test")]:
     print(f"\n=== {name} Split ===")
+    
     # a) Anzahl pro TPP
     counts = df["task"].value_counts().reindex(["TPP1","TPP2","TPP3","TPP4"], fill_value=0)
-    print("Anzahl generated Negatives pro TPP:")
+    print("Anzahl ALLER Negatives pro TPP:")
     print(counts, "\n")
 
-    # b) Similarity‐Statistiken pro TPP
-    stats = df.groupby("task")["max_pos_sim"].describe().loc[["TPP1","TPP2","TPP3","TPP4"]]
+    # b) Similarity‐Statistiken pro TPP (sicheres Reindex)
+    stats = df.groupby("task")["max_pos_sim"].describe().reindex(["TPP1","TPP2","TPP3","TPP4"])
     print("Levenshtein-Ratio Statistik pro TPP:")
     print(stats, "\n")
 
-    # c) Barplot für Counts
+    # c) Barplot
     plt.figure(figsize=(4,3))
     counts.plot.bar()
-    plt.title(f"{name}: Count gener. Neg. je TPP")
+    plt.title(f"{name}: Count Negatives je TPP")
     plt.ylabel("Anzahl")
     plt.tight_layout()
     plt.savefig(f"count_per_TPP_{name}.png")
     plt.close()
 
-    # d) Boxplot für Similarities
+    # d) Boxplot
     plt.figure(figsize=(5,3))
     df.boxplot(column="max_pos_sim", by="task", positions=[1,2,3,4])
     plt.title(f"{name}: Similarity per TPP")

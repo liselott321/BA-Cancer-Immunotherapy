@@ -225,7 +225,7 @@ def confidence_penalty(logits, penalty_weight=0.1):
         else:
             return loss
 
-criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device)'''
+criterion = FocalLoss(alpha=0.75, gamma=2.0).to(device) >> try o.5 gamma'''
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate

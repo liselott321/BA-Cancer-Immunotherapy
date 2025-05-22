@@ -74,7 +74,7 @@ model = TCR_Epitope_Transformer(
 
 # Modell von wandb laden
 # Modell von lokaler Datei laden (Epoche 7)
-model_file = "results/trained_models/v1_mha/epochs/model_epoch_12.pt" #19
+model_file = "results/trained_models/v1_mha/epochs/model_epoch_3.pt" #19
 print(f"Lade Modell aus lokaler Datei: {model_file}")
 
 
