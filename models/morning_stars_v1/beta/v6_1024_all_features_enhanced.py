@@ -104,6 +104,127 @@ class PeriodicEmbedding(nn.Module):
         pe = torch.cat([torch.sin(x * div_term), torch.cos(x * div_term)], dim=-1)
         return pe
 
+class FeatureStratifiedSampler:
+    """Batch sampler that stratifies by binding status, MHC class, and TCR/epitope properties."""
+    
+    def __init__(self, dataset, dataframe, batch_size=32):
+        self.dataset = dataset
+        self.dataframe = dataframe
+        self.batch_size = batch_size
+        
+        # Ensure we have the necessary feature columns
+        if "MHC_Class" not in dataframe.columns:
+            print("Adding MHC_Class column...")
+            def determine_mhc_class(mhc):
+                if pd.isna(mhc):
+                    return "Unknown"
+                elif mhc.startswith(("HLA-A", "HLA-B", "HLA-C")):
+                    return "MHC-I"
+                elif mhc.startswith("HLA-D"):
+                    return "MHC-II"
+                else:
+                    return "Other"
+            dataframe["MHC_Class"] = dataframe["MHC"].apply(determine_mhc_class)
+        
+        if "TCR_Category" not in dataframe.columns:
+            print("Adding TCR_Category column...")
+            def categorize_tcr(tcr):
+                if pd.isna(tcr) or len(tcr) == 0:
+                    return "Unknown"
+                length_cat = "Short" if len(tcr) < 12 else "Medium" if len(tcr) < 16 else "Long"
+                motif = tcr[:3] if len(tcr) >= 3 else tcr
+                return f"{motif}_{length_cat}"
+            dataframe["TCR_Category"] = dataframe["TRB_CDR3"].apply(categorize_tcr)
+        
+        # Create stratification based on binding, MHC class, and TCR category
+        self.strata = {}
+        binding_values = dataframe["Binding"].unique()
+        mhc_classes = dataframe["MHC_Class"].unique()
+        
+        # Get top TCR categories that have at least 10 examples
+        tcr_counts = dataframe["TCR_Category"].value_counts()
+        tcr_categories = tcr_counts[tcr_counts >= 10].index.tolist()
+        
+        # Create strata
+        for binding in binding_values:
+            for mhc_class in mhc_classes:
+                # For TCR categories, we'll either use the specific category or "Other"
+                for tcr_cat in tcr_categories + ["Other"]:
+                    if tcr_cat == "Other":
+                        # "Other" includes all TCR categories not in our main list
+                        mask = (
+                            (dataframe["Binding"] == binding) & 
+                            (dataframe["MHC_Class"] == mhc_class) & 
+                            (~dataframe["TCR_Category"].isin(tcr_categories))
+                        )
+                    else:
+                        mask = (
+                            (dataframe["Binding"] == binding) & 
+                            (dataframe["MHC_Class"] == mhc_class) & 
+                            (dataframe["TCR_Category"] == tcr_cat)
+                        )
+                    
+                    indices = np.where(mask)[0]
+                    if len(indices) > 0:
+                        self.strata[(binding, mhc_class, tcr_cat)] = indices
+                        binding_str = "Binding" if binding == 1 else "Non-binding"
+                        print(f"Stratum ({binding_str}, {mhc_class}, {tcr_cat}): {len(indices)} examples")
+        
+        # Initialize pointers and shuffle each stratum
+        self.pointers = {k: 0 for k in self.strata}
+        for k in self.strata:
+            np.random.shuffle(self.strata[k])
+    
+    def get_batch_indices(self):
+        """Get balanced indices for a batch."""
+        batch_indices = []
+        strata_keys = list(self.strata.keys())
+        
+        # How many samples we should take from each stratum
+        samples_per_stratum = max(1, self.batch_size // len(strata_keys))
+        
+        # Collect indices from each stratum
+        for key in strata_keys:
+            indices = self.strata[key]
+            pointer = self.pointers[key]
+            
+            # If we've used all indices in this stratum, shuffle and reset
+            if pointer >= len(indices):
+                np.random.shuffle(indices)
+                self.pointers[key] = 0
+                pointer = 0
+            
+            # How many samples we can take from this stratum
+            available = min(samples_per_stratum, len(indices) - pointer)
+            
+            if available > 0:
+                selected = indices[pointer:pointer+available]
+                self.pointers[key] += available
+                batch_indices.extend(selected)
+        
+        # If we couldn't fill the batch with our strategy, add random samples
+        if len(batch_indices) < self.batch_size:
+            remaining = self.batch_size - len(batch_indices)
+            all_indices = np.arange(len(self.dataframe))
+            remaining_indices = np.setdiff1d(all_indices, batch_indices)
+            
+            if len(remaining_indices) >= remaining:
+                extra = np.random.choice(remaining_indices, size=remaining, replace=False)
+            else:
+                extra = np.random.choice(all_indices, size=remaining, replace=True)
+                
+            batch_indices.extend(extra)
+        
+        # Shuffle the batch indices
+        np.random.shuffle(batch_indices)
+        return batch_indices
+    
+    def get_loader(self):
+        """Get a DataLoader for a single balanced batch."""
+        indices = self.get_batch_indices()
+        subset = Subset(self.dataset, indices)
+        return DataLoader(subset, batch_size=self.batch_size, shuffle=False)
+
         
 class LazyFullFeatureDataset(torch.utils.data.Dataset):
     def __init__(self, data_frame, tcr_embeddings, epitope_embeddings,
