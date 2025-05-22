@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.utils.checkpoint import checkpoint
 
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_dim, dropout):
@@ -126,10 +127,13 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
     def __init__(self, embed_dim=128, num_heads=4, num_layers=2,
                  max_tcr_length=43, max_epitope_length=43, dropout=0.1,
                  classifier_hidden_dim=64, physchem_dim=10,
-                 trbv_vocab_size=50, trbj_vocab_size=20, mhc_vocab_size=100):
+                 trbv_vocab_size=50, trbj_vocab_size=20, mhc_vocab_size=100,
+                 use_checkpointing=False):
         super().__init__()
 
         self.embed_dim = embed_dim
+        self.use_checkpointing = use_checkpointing
+        
         self.tcr_embedding = nn.Linear(1024, embed_dim)
         self.epitope_embedding = nn.Linear(1024, embed_dim)
 
@@ -154,6 +158,26 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
                                    self.tcr_physchem_embed.output_dim * 2
         
         self.classifier = Classifier(self.classifier_input_dim, classifier_hidden_dim, dropout)
+        
+        # Initialize weights
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialize model weights for better training stability"""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Embedding):
+                nn.init.normal_(m.weight, mean=0, std=0.02)
+    
+    def _run_attention_block(self, layer, x, mask=None):
+        """Helper function for checkpointing"""
+        return layer(x, key_padding_mask=mask)
 
     def forward(self, tcr, epitope, tcr_physchem, epi_physchem, trbv, trbj, mhc):
         # Embed sequences
@@ -177,9 +201,14 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         combined = torch.cat([tcr_emb, epitope_emb], dim=1)
         key_padding_mask = torch.cat([tcr_mask, epitope_mask], dim=1)
 
-        # Process through transformer layers
-        for layer in self.transformer_layers:
-            combined = layer(combined, key_padding_mask=key_padding_mask)
+        # Process through transformer layers with optional gradient checkpointing
+        for i, layer in enumerate(self.transformer_layers):
+            if self.use_checkpointing and self.training:
+                # Use gradient checkpointing during training
+                combined = checkpoint(self._run_attention_block, layer, combined, key_padding_mask)
+            else:
+                # Normal forward pass without checkpointing
+                combined = layer(combined, key_padding_mask=key_padding_mask)
 
         # Flatten the combined sequences
         flattened = combined.view(combined.size(0), -1)
