@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score, log_loss
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, precision_recall_curve, accuracy_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
@@ -16,11 +16,10 @@ import wandb
 from dotenv import load_dotenv
 import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.calibration import calibration_curve
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-# for use with subsets
-from models.morning_stars_v1.beta.v5_ple_offline_ReciprocalAttention import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+# Import the enhanced model
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -37,52 +36,38 @@ print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
 
-# print(epochs,'\n', batch_size,'\n', learning_rate)
-
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-physchem_path = config['embeddings']['ple_edges']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
-ple_edges_path = physchem_path
-# zusätzlich: das Raw-HDF5 zum Auslesen von tcr_raw/epi_raw
-physchem_raw_h5 = config['embeddings']['physchem_raw_h5']
-physchem_file     = h5py.File(physchem_raw_h5, 'r')
-
-PLE_H5 = config['embeddings']['ple_h5']  # z.B. "../../data/physico/ple/descriptor_physchem_ple.h5"
-ple_h5 = h5py.File(PLE_H5, 'r')
-ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
-ple_epi_tensor = torch.tensor(ple_h5["epi_ple"][:], dtype=torch.float32)
-
-<<<<<<< HEAD
-print(f"Loaded PLE shapes → tcr: {ple_tcr_tensor.shape}, epi: {ple_epi_tensor.shape}")
-
-=======
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
+# physchem_path = config['embeddings']['physchem']
+physchem_path= "../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
+physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
+# Directory for model checkpoints
+checkpoint_dir = os.path.join(os.path.dirname(model_path), "checkpoints")
+os.makedirs(checkpoint_dir, exist_ok=True)
 
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v5_reci"
+MODEL_NAME = "v6_all_features_sameAttention"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
-# Logge Hyperparameter explizit
+# Log hyperparameters explicitly
 wandb.config.update({
     "model_name": MODEL_NAME,
     "embed_dim": config["embed_dim"],
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
+    "use_checkpointing": True,  # Add new parameters for enhanced model
+    "bidirectional_cross_attention": False
 })
-
-# # embeddings
-# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
 
 # Embeddings paths from config/args
 tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
@@ -91,9 +76,6 @@ tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else con
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
 # Load Data -------------------------------------------------------
-#train_data = pd.read_csv(train_path, sep='\t')
-#val_data = pd.read_csv(val_path, sep='\t')
-
 dataset_name = f"beta_allele"
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
@@ -104,36 +86,40 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-# (falls Du noch eine Mapping-Tabelle brauchst, lade sie hier:)
-physchem_map = pd.read_csv(config['embeddings']['physchem_map'], sep='\t')
-physchem_map.rename(columns={'idx':'physchem_index'}, inplace=True)
-train_data = pd.merge(train_data, physchem_map, on=['TRB_CDR3','Epitope'], how='left')
-val_data   = pd.merge(val_data,   physchem_map, on=["TRB_CDR3","Epitope"], how="left")
+physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
 
-# (optional) prüfen, ob irgendwo physchem_index fehlt
-n_missing = train_data["physchem_index"].isna().sum()
-if n_missing>0:
-    raise ValueError(f"{n_missing} Einträge ohne physchem_index!")
+# Per Sequenz joinen
+train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
+val_data = pd.merge(val_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
 
-<<<<<<< HEAD
+# Mappings erstellen
+trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
+trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
+mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
 
-# ——— Sanity‐Check: physchem_index ↔ PLE-Zeile ———
-print(">>> PLE sanity check:")
-for i in [0, 100, 1000]:
-    phys_idx = int(train_data.loc[i, "physchem_index"])
-    print(f"idx={i:4d}  physchem_index={phys_idx:4d}   "
-          f"sum(tcr_ple)={ple_tcr_tensor[phys_idx].sum().item():.3f}   "
-          f"sum(epi_ple)={ple_epi_tensor[phys_idx].sum().item():.3f}")
-print(">>> Ende Sanity‐Check\n")
+UNKNOWN_TRBV_IDX = len(trbv_dict)
+UNKNOWN_TRBJ_IDX = len(trbj_dict)
+UNKNOWN_MHC_IDX  = len(mhc_dict)
 
-=======
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
+for df in [train_data, val_data]:
+    df["TRBV_Index"] = df["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
+    df["TRBJ_Index"] = df["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
+    df["MHC_Index"]  = df["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
+
+# Vokabulargrößen bestimmen
+trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
+trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
+mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
+
+print(trbv_vocab_size)
+print(trbj_vocab_size)
+print(mhc_vocab_size)
+
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
     """Lazy load HDF5 file and return a reference to the file."""
     return h5py.File(file_path, 'r')
-
 
 print('Loading embeddings...')
 print("tcr_train ", tcr_train_path)
@@ -145,64 +131,52 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
+emb_physchem_path = "../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
+
+with h5py.File(emb_physchem_path, 'r') as f:
+    inferred_physchem_dim = f["tcr_encoded"].shape[1]
+
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_tcr_tensor, ple_epi_tensor)
-val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_tcr_tensor, ple_epi_tensor)
+train_dataset = LazyFullFeatureDataset(train_data, tcr_train_embeddings, epitope_train_embeddings, physchem_file, trbv_dict, trbj_dict, mhc_dict)
+val_dataset = LazyFullFeatureDataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, physchem_file, trbv_dict, trbj_dict, mhc_dict)
 
-# 3) ple_dim aus dem HDF5 auslesen
-ple_dim = ple_tcr_tensor.shape[1]
-print(f"PLE Dim: {ple_dim}")
 
-class RotatingFullCoverageSampler:
-    def __init__(self, dataset, labels, batch_size=32):
+class OversampledFullDataset:
+    def __init__(self, dataset, labels):
         self.dataset = dataset
         self.labels = np.array(labels)
-        self.batch_size = batch_size
-
         self.pos_indices = np.where(self.labels == 1)[0]
         self.neg_indices = np.where(self.labels == 0)[0]
 
-        self.pos_pointer = 0
-        self.neg_pointer = 0
+    def build_oversampled_indices(self):
+        num_neg = len(self.neg_indices)
+        num_pos = len(self.pos_indices)
 
-        np.random.shuffle(self.pos_indices)
-        np.random.shuffle(self.neg_indices)
+        additional_pos_indices = np.random.choice(
+            self.pos_indices, size=num_neg - num_pos, replace=True
+        )
+        final_indices = np.concatenate([
+            self.neg_indices,
+            self.pos_indices,
+            additional_pos_indices
+        ])
+        np.random.shuffle(final_indices)
+        return final_indices
 
-    def get_loader(self):
-        chunk_size = min(len(self.pos_indices) - self.pos_pointer, len(self.neg_indices) - self.neg_pointer)
-
-        if chunk_size == 0:
-            # Reset when everything has been used at least once
-            self.pos_pointer = 0
-            self.neg_pointer = 0
-            np.random.shuffle(self.pos_indices)
-            np.random.shuffle(self.neg_indices)
-            chunk_size = min(len(self.pos_indices), len(self.neg_indices))
-
-        sampled_pos = self.pos_indices[self.pos_pointer:self.pos_pointer + chunk_size]
-        sampled_neg = self.neg_indices[self.neg_pointer:self.neg_pointer + chunk_size]
-
-        self.pos_pointer += chunk_size
-        self.neg_pointer += chunk_size
-
-        combined = np.concatenate([sampled_pos, sampled_neg])
-        np.random.shuffle(combined)
-
-        subset = Subset(self.dataset, combined)
-        return DataLoader(subset, batch_size=self.batch_size, shuffle=True, num_workers=2, pin_memory=True)
-
+    def get_loader(self, batch_size=32):
+        indices = self.build_oversampled_indices()
+        subset = Subset(self.dataset, indices)
+        return DataLoader(subset, batch_size=batch_size, shuffle=True)
+ 
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
-max_pairs_per_epoch = min(num_pos, num_neg) # Da immer nur gleich viele Positives und Negatives ziehen (1:1)
-required_epochs = math.ceil(max(num_pos, num_neg) / max_pairs_per_epoch)
-print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu verwenden.")
 
 # Data loaders
 train_labels = train_data['Binding'].values 
 balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -210,15 +184,20 @@ print(f"Using device: {device}")
 if device.type == "cuda":
     print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
-model = TCR_Epitope_Transformer(
-    ple_dim=ple_dim,
+dropout = args.dropout if args.dropout else config['dropout']
+
+model = TCR_Epitope_Transformer_AllFeatures(
     embed_dim=config['embed_dim'],
     num_heads=config['num_heads'],
     num_layers=config['num_layers'],
     max_tcr_length=config['max_tcr_length'],
     max_epitope_length=config['max_epitope_length'],
-    dropout=config['dropout'],
-    classifier_hidden_dim=config.get('classifier_hidden_dim',64)
+    dropout=dropout,
+    physchem_dim=inferred_physchem_dim,
+    trbv_vocab_size=trbv_vocab_size,
+    trbj_vocab_size=trbj_vocab_size,
+    mhc_vocab_size=mhc_vocab_size,
+    use_checkpointing=True  # Set to False if memory isn't an issue 
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
@@ -229,7 +208,7 @@ neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-# Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
+# Automatically load sweep configuration into local variables
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
 optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
@@ -243,6 +222,7 @@ elif optimizer_name == "sgd":
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+    
 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
     
 best_ap = 0.0
@@ -252,6 +232,32 @@ min_epochs = required_epochs
 patience = 3
 global_step = 0
 
+# Function to save model checkpoint to wandb - FIXED VERSION
+def save_checkpoint(model, epoch, optimizer, scheduler=None):
+    """Save model checkpoint with only serializable components"""
+    checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt")
+    
+    # Only save the essential components that are serializable
+    checkpoint = {
+        'epoch': epoch + 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }
+    
+    # Add scheduler state if it exists
+    if scheduler is not None:
+        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
+    
+    # Save the checkpoint
+    torch.save(checkpoint, checkpoint_path)
+    
+    # Log checkpoint to wandb
+    artifact = wandb.Artifact(f"model_checkpoint_epoch_{epoch+1}", type="model")
+    artifact.add_file(checkpoint_path)
+    wandb.log_artifact(artifact)
+    
+    return checkpoint_path
+
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
     model.train()
@@ -260,16 +266,17 @@ for epoch in range(epochs):
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
-    for tcr, epitope, tcr_ple, epi_ple, label in train_loader_tqdm:
-        tcr, epitope, tcr_ple, epi_ple, label = (
+    for tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label in train_loader_tqdm:
+        tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label = (
             tcr.to(device),
             epitope.to(device),
-            tcr_ple.to(device),
-            epi_ple.to(device),
+            tcr_phys.to(device),
+            epi_phys.to(device),
+            trbv.to(device), trbj.to(device), mhc.to(device),
             label.to(device),
         )
         optimizer.zero_grad()
-        output = model(tcr, epitope, tcr_ple, epi_ple)
+        output = model(tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc)
         loss = criterion(output, label)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) #gradient clipping
@@ -290,15 +297,16 @@ for epoch in range(epochs):
     val_loss_total = 0
 
     with torch.no_grad():
-        for tcr, epitope, tcr_ple, epi_ple, label in val_loader_tqdm:
-            tcr, epitope, tcr_ple, epi_ple, label = (
+        for tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label in val_loader_tqdm:
+            tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label = (
                 tcr.to(device),
                 epitope.to(device),
-                tcr_ple.to(device),
-                epi_ple.to(device),
+                tcr_phys.to(device),
+                epi_phys.to(device),
+                trbv.to(device), trbj.to(device), mhc.to(device),
                 label.to(device),
             )
-            output = model(tcr, epitope, tcr_ple, epi_ple)
+            output = model(tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc)
             val_loss = criterion(output, label)
             val_loss_total += val_loss.item()
 
@@ -317,7 +325,7 @@ for epoch in range(epochs):
     best_f1 = np.max(f1_scores)
     
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
-    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
+    wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step, commit=False)
     
     # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
     preds = (all_outputs > best_threshold).astype(float)
@@ -333,7 +341,7 @@ for epoch in range(epochs):
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
     scheduler.step(auc)
-    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
+    wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
@@ -356,31 +364,31 @@ for epoch in range(epochs):
     
     # Speichern und in wandb loggen
     os.makedirs("results", exist_ok=True)
-    roc_curve_path = "results/roc_curve.png"
+    roc_curve_path = f"results/roc_curve_epoch_{epoch+1}.png"
     plt.savefig(roc_curve_path)
     wandb.log({"roc_curve": wandb.Image(roc_curve_path)}, step=global_step, commit=False)
     plt.close()
 
     wandb.log({
-    "epoch": epoch + 1,
-    "train_loss_epoch": epoch_loss / len(train_loader),
-    "val_loss": val_loss_total / len(val_loader),
-    "val_auc": auc,
-    "val_ap": ap,
-    "val_f1": f1,
-    "val_accuracy": accuracy,
-    "val_tp": tp,
-    "val_tn": tn,
-    "val_fp": fp,
-    "val_fn": fn,
-    "val_precision": precision,
-    "val_recall": recall,
-    "prediction_distribution": wandb.Histogram(all_outputs),
-    "label_distribution": wandb.Histogram(all_labels),
-    "val_confusion_matrix": wandb.plot.confusion_matrix(
-        y_true=all_labels,
-        preds=all_preds,
-        class_names=["Not Binding", "Binding"])
+        "epoch": epoch + 1,
+        "train_loss_epoch": epoch_loss / len(train_loader),
+        "val_loss": val_loss_total / len(val_loader),
+        "val_auc": auc,
+        "val_ap": ap,
+        "val_f1": f1,
+        "val_accuracy": accuracy,
+        "val_tp": tp,
+        "val_tn": tn,
+        "val_fp": fp,
+        "val_fn": fn,
+        "val_precision": precision,
+        "val_recall": recall,
+        "prediction_distribution": wandb.Histogram(all_outputs),
+        "label_distribution": wandb.Histogram(all_labels),
+        "val_confusion_matrix": wandb.plot.confusion_matrix(
+            y_true=all_labels,
+            preds=all_preds,
+            class_names=["Not Binding", "Binding"])
     }, step=global_step, commit=False)
 
     # ===== TPP1–TPP4 Auswertung im Validierungsset =====
@@ -388,31 +396,6 @@ for epoch in range(epochs):
         all_tasks = val_data["task"].values
 
         for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
-            
-            class TemperatureScaler(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.temperature = nn.Parameter(torch.ones(1) * 1.0)
-            
-                def forward(self, logits):
-                    return logits / self.temperature
-
-            def fit_temperature(logits, labels, max_iter=500):
-                logits = torch.tensor(logits).float()
-                labels = torch.tensor(labels).float()
-            
-                model = TemperatureScaler()
-                optimizer = optim.LBFGS([model.temperature], lr=0.01, max_iter=max_iter)
-            
-                def closure():
-                    optimizer.zero_grad()
-                    loss = nn.BCEWithLogitsLoss()(model(logits).squeeze(), labels)
-                    loss.backward()
-                    return loss
-            
-                optimizer.step(closure)
-                return model.temperature.item()
-
             mask = all_tasks == tpp
             if mask.sum() > 0:
                 labels = all_labels[mask]
@@ -474,55 +457,16 @@ for epoch in range(epochs):
                 # Speicherpfad & Logging
                 plot_path = f"results/{tpp}_confidence_hist_epoch{epoch+1}.png"
                 plt.savefig(plot_path)
-                wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
-                plt.close()
-                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
-                raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
-                temperature = fit_temperature(raw_logits, labels)
-                scaled_logits = raw_logits / temperature
-                scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
-                
-                # Jetzt z. B. neu evaluieren mit scaled_probs
-                scaled_preds = (scaled_probs > 0.5).astype(int)
-                
-                # Neue Metriken mit skalierter Ausgabe
-                scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
-                scaled_acc = accuracy_score(labels, scaled_preds)
-                scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
-                scaled_rec = recall_score(labels, scaled_preds, zero_division=0)
-                
-                print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
-                print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
-                
-                # Logge es optional nach wandb
-                wandb.log({
-                    f"val_{tpp}_temperature": temperature,
-                    f"val_{tpp}_f1_scaled": scaled_f1,
-                    f"val_{tpp}_accuracy_scaled": scaled_acc,
-                    f"val_{tpp}_precision_scaled": scaled_prec,
-                    f"val_{tpp}_recall_scaled": scaled_rec
-                }, step=global_step, commit=False)
-                # Reliability Diagram (nach dem Scaling!)
-                prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
-                
-                plt.figure(figsize=(6, 4))
-                plt.plot(prob_pred, prob_true, marker='o', label="Calibrated")
-                plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
-                plt.xlabel("Predicted Probability (Binned)")
-                plt.ylabel("True Proportion of Positives")
-                plt.title(f"Reliability Diagram – {tpp}")
-                plt.legend()
-                plt.tight_layout()
-                
-                # Speicherpfad & Logging
-                plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
-                plt.savefig(plot_path_calib)
-                wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
+                wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step, commit=False)
                 plt.close()
             else:
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
+    
+    # Save model checkpoint after each epoch (FIXED VERSION)
+    checkpoint_path = save_checkpoint(model, epoch, optimizer, scheduler)
+    print(f"Saved checkpoint for epoch {epoch+1} to {checkpoint_path}")
 
     # Early Stopping: nur auf multiples von `min_epochs` schauen
     if ap > best_ap:
@@ -533,43 +477,21 @@ for epoch in range(epochs):
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
-    # Modell nach jeder Epoche speichern (aktueller Zustand)
-<<<<<<< HEAD
-    current_model_path = "results/trained_models/v5_reci/model.pt"
-    os.makedirs("results/trained_models/v5_reci", exist_ok=True)
-=======
-    current_model_path = "results/trained_models/v5/model.pt"
-    os.makedirs("results/trained_models/v5", exist_ok=True)
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
-    torch.save(model.state_dict(), current_model_path)
-
-    # Logge als neues Artefakt bei W&B (wird automatisch versioniert: v0, v1, ...)
-    artifact = wandb.Artifact(run_name + "_model", type="model")
-    artifact.add_file(current_model_path)
-    wandb.log_artifact(artifact)
-
     # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
     if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
-
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-<<<<<<< HEAD
-    best_model_path = "results/trained_models/v5_reci/best_model_reci.pt"
-=======
-    best_model_path = "results/trained_models/v5/best_model.pt"
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
-    torch.save(best_model_state, best_model_path)
+    os.makedirs("results/trained_models/v6_all_features_pe", exist_ok=True)
+    torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
-    # Logge bestes Modell separat als Artefakt
-    best_artifact = wandb.Artifact(run_name + "_best_model", type="model")
-    best_artifact.add_file(best_model_path)
-    wandb.log_artifact(best_artifact)
+    artifact = wandb.Artifact(run_name + "_best_model", type="model")
+    artifact.add_file(model_path)
+    wandb.log_artifact(artifact)
 
-# Finish Logging
 wandb.finish()
 print("Best Hyperparameters:")
 print(wandb.config)

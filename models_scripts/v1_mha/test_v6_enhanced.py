@@ -20,7 +20,12 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+<<<<<<< HEAD
 from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+=======
+# from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -37,7 +42,11 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
+<<<<<<< HEAD
     name=f"Test_Run_v6_sameAtt_epoch_{epoch_model}",  # update if necessary !!!!!!!!!!!!!!!!
+=======
+    name=f"Test_Run_v6_improved_epoch_{epoch_model}",  # update if necessary !!!!!!!!!!!!!!!!
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
     config=config
 )
 
@@ -45,7 +54,12 @@ run = wandb.init(
 # test_path = args.test if args.test else config['data_paths']['test']
 tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else config['embeddings']['tcr_test']
 epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else config['embeddings']['epitope_test']
+<<<<<<< HEAD
 
+=======
+num_heads = args.num_heads if args.num_heads else config['num_heads']
+num_layers = args.num_layers if args.num_layers else config['num_layers']
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
 # physchem_path= "../../../../data/physico/descriptor_encoded_physchem.h5"
 physchem_path= "../../data/physico/descriptor_encoded_physchem.h5"
 
@@ -115,17 +129,28 @@ test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = TCR_Epitope_Transformer_AllFeatures(
+<<<<<<< HEAD
     embed_dim=config['embed_dim'],
     num_heads=config['num_heads'],
     num_layers=config['num_layers'],
+=======
+    embed_dim= config['embed_dim'],
+    num_heads= num_heads, # config['num_heads'],
+    num_layers= num_layers, # config['num_layers'],
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
     max_tcr_length=config['max_tcr_length'],
     max_epitope_length=config['max_epitope_length'],
     dropout=0.3,
     physchem_dim=inferred_physchem_dim,
     trbv_vocab_size=trbv_vocab_size,
     trbj_vocab_size=trbj_vocab_size,
+<<<<<<< HEAD
     mhc_vocab_size=mhc_vocab_size,
     use_checkpointing=True  # Set to False if memory isn't an issue 
+=======
+    mhc_vocab_size=mhc_vocab_size
+    # use_checkpointing=False  # Set to False if memory isn't an issue 
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
 ).to(device)
 
 # Modell von wandb laden
@@ -133,7 +158,11 @@ print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
+<<<<<<< HEAD
 artifact_name = f"ba_cancerimmunotherapy/dataset-allele/model_checkpoint_epoch_{epoch_model}:v1" #anpassen, wenn andere version latest oder v12
+=======
+artifact_name = f"ba_cancerimmunotherapy/dataset-allele/model_checkpoint_epoch_{epoch_model}:v2" #anpassen, wenn andere version latest oder v12
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])

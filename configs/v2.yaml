@@ -7,7 +7,11 @@ num_heads: 16
 num_layers: 4
 max_tcr_length: 43
 max_epitope_length: 43
+<<<<<<< HEAD
 model_path: "results/trained_models/v2_newhyper_over/v2_newhyper_over.pth"
+=======
+model_path: "results/trained_models/v1_mha/v2.pth"
+>>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"
   val: "../../data/splitted_datasets/allele/beta/validation.tsv"
