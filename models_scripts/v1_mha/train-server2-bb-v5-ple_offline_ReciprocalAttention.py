@@ -55,6 +55,8 @@ ple_h5 = h5py.File(PLE_H5, 'r')
 ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
 ple_epi_tensor = torch.tensor(ple_h5["epi_ple"][:], dtype=torch.float32)
 
+print(f"Loaded PLE shapes → tcr: {ple_tcr_tensor.shape}, epi: {ple_epi_tensor.shape}")
+
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -109,6 +111,16 @@ val_data   = pd.merge(val_data,   physchem_map, on=["TRB_CDR3","Epitope"], how="
 n_missing = train_data["physchem_index"].isna().sum()
 if n_missing>0:
     raise ValueError(f"{n_missing} Einträge ohne physchem_index!")
+
+
+# ——— Sanity‐Check: physchem_index ↔ PLE-Zeile ———
+print(">>> PLE sanity check:")
+for i in [0, 100, 1000]:
+    phys_idx = int(train_data.loc[i, "physchem_index"])
+    print(f"idx={i:4d}  physchem_index={phys_idx:4d}   "
+          f"sum(tcr_ple)={ple_tcr_tensor[phys_idx].sum().item():.3f}   "
+          f"sum(epi_ple)={ple_epi_tensor[phys_idx].sum().item():.3f}")
+print(">>> Ende Sanity‐Check\n")
 
 # Load Embeddings -------------------------------------------------------
 # HDF5 Lazy Loading for embeddings
@@ -516,8 +528,8 @@ for epoch in range(epochs):
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
     # Modell nach jeder Epoche speichern (aktueller Zustand)
-    current_model_path = "results/trained_models/v5/model.pt"
-    os.makedirs("results/trained_models/v5", exist_ok=True)
+    current_model_path = "results/trained_models/v5_reci/model.pt"
+    os.makedirs("results/trained_models/v5_reci", exist_ok=True)
     torch.save(model.state_dict(), current_model_path)
 
     # Logge als neues Artefakt bei W&B (wird automatisch versioniert: v0, v1, ...)
@@ -533,7 +545,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    best_model_path = "results/trained_models/v5/best_model.pt"
+    best_model_path = "results/trained_models/v5_reci/best_model_reci.pt"
     torch.save(best_model_state, best_model_path)
     print("Best model saved with AP:", best_ap)
 

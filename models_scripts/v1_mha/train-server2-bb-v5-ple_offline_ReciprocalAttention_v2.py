@@ -545,7 +545,7 @@ for epoch in range(epochs):
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
     # Modell nach jeder Epoche speichern (aktueller Zustand)
-    current_model_path = "results/trained_models/v5/model.pt"
+    current_model_path = "results/trained_models/v5/model_reci_v2.pt"
     os.makedirs("results/trained_models/v5", exist_ok=True)
     torch.save(model.state_dict(), current_model_path)
 
@@ -562,7 +562,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    best_model_path = "results/trained_models/v5/best_model.pt"
+    best_model_path = "results/trained_models/v5/best_model_reci_v2.pt"
     torch.save(best_model_state, best_model_path)
     print("Best model saved with AP:", best_ap)
 

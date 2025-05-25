@@ -44,11 +44,14 @@ test_path = f"{data_dir}/allele/test.tsv"
 train_file_path = f"{data_dir}/allele/train.tsv"
 
 # ========== Download model from wandb ==========
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2h_best_model:v2"
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v2_newh_best_model:v1"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
-
+'''
+# ========== Download from results ==========
+model_file = "results/trained_models/v2/epochs/model_epoch_6.pt"
+'''
 # ========== Load test data ==========
 print(f" Lade Testdaten: {test_path}")
 test_data = pd.read_csv(test_path, sep="\t")
@@ -104,6 +107,8 @@ model = TCR_Epitope_Transformer(
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
 print(f" Modell geladen von: {model_artifact.name}")
+#print(f" Modell geladen von: {model_file}")
+
 
 # ========== Evaluate ==========
 all_labels, all_outputs, all_preds = [], [], []
@@ -130,6 +135,7 @@ all_preds = np.array(all_preds)
 auc = roc_auc_score(all_labels, all_outputs)
 ap = average_precision_score(all_labels, all_outputs)
 f1 = f1_score(all_labels, all_preds)
+macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
 acc = accuracy_score(all_labels, all_preds)
 precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
@@ -138,6 +144,7 @@ print("\n Gesamtauswertung:")
 print(f"AUC:  {auc:.4f}")
 print(f"AP:   {ap:.4f}")
 print(f"F1:   {f1:.4f}")
+print(f"Macro F1: {macro_f1:.4f}")
 print(f"Acc:  {acc:.4f}")
 print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
@@ -147,6 +154,7 @@ wandb.log({
     "test_auc": auc,
     "test_ap": ap,
     "test_f1": f1,
+    "test_macro_f1": macro_f1,
     "test_accuracy": acc,
     "test_precision": precision,
     "test_recall": recall
@@ -165,12 +173,14 @@ for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
 
         # Nur wenn beide Klassen vorhanden sind
         if len(unique_classes) == 2:
+            tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
             tpp_auc = roc_auc_score(labels, outputs)
             tpp_ap = average_precision_score(labels, outputs)
         else:
+            tpp_macro_f1 = None
             tpp_auc = None
             tpp_ap = None
-            print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
+            print(f"  {tpp}: Nur eine Klasse vorhanden – F1 & AUC & AP übersprungen.")
 
         # Diese Metriken funktionieren auch bei einer Klasse
         tpp_f1 = f1_score(labels, preds, zero_division=0)
@@ -182,6 +192,7 @@ for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
         print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
         print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
         print(f"F1:   {tpp_f1:.4f}")
+        print(f"Macro F1: {tpp_macro_f1:.4f}" if tpp_macro_f1 is not None else "Macro F1: n/a")
         print(f"Acc:  {tpp_acc:.4f}")
         print(f"Precision: {tpp_precision:.4f}")
         print(f"Recall:    {tpp_recall:.4f}")
@@ -189,6 +200,7 @@ for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
         # Logging
         log_dict = {
             f"{tpp}_f1": tpp_f1,
+            f"{tpp}_macro_f1": tpp_macro_f1,
             f"{tpp}_accuracy": tpp_acc,
             f"{tpp}_precision": tpp_precision,
             f"{tpp}_recall": tpp_recall,

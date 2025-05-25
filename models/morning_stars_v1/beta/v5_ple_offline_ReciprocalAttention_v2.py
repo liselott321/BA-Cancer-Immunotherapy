@@ -66,17 +66,16 @@ class ReciprocalAttention(nn.Module):
 
         self.norm_peptide = nn.LayerNorm(embed_dim)
         self.norm_tcr = nn.LayerNorm(embed_dim)
-
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, tcr_emb, peptide_emb, key_padding_mask_tcr=None, key_padding_mask_epi=None):
-        pep2tcr, _ = self.peptide_to_tcr(peptide_emb, tcr_emb, tcr_emb, key_padding_mask=key_padding_mask_tcr)
-        peptide_out = self.norm_peptide(peptide_emb + self.dropout(pep2tcr))
-
-        tcr2pep, _ = self.tcr_to_peptide(tcr_emb, peptide_emb, peptide_emb, key_padding_mask=key_padding_mask_epi)
-        tcr_out = self.norm_tcr(tcr_emb + self.dropout(tcr2pep))
-
-        return tcr_out, peptide_out
+    def forward(self, tcr_emb, epitope_emb, key_padding_mask_tcr=None, key_padding_mask_epi=None):
+        # peptide attends to TCR
+        tcr_attn, _ = self.peptide_to_tcr(query=epitope_emb, key=tcr_emb, value=tcr_emb, key_padding_mask=key_padding_mask_tcr)
+        pep_out = self.norm_peptide(epitope_emb + self.dropout(tcr_attn))
+        # TCR attends to peptide
+        pep_attn, _ = self.tcr_to_peptide(query=tcr_emb, key=epitope_emb, value=epitope_emb, key_padding_mask=key_padding_mask_epi)
+        tcr_out = self.norm_tcr(tcr_emb + self.dropout(pep_attn))
+        return tcr_out, pep_out
 
 class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
     def __init__(self, data_frame, tcr_embeddings, epitope_embeddings, ple_tcr_tensor, ple_epi_tensor, trbv_dict, trbj_dict, mhc_dict):
@@ -146,7 +145,15 @@ class TCR_Epitope_Transformer(nn.Module):
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
 
+        # self-attention per sequence
+        self.transformer_layers = nn.ModuleList([
+            AttentionBlock(embed_dim, num_heads, dropout)
+            for _ in range(num_layers)
+        ])
+
+        # cross-attention
         self.rec_attn = ReciprocalAttention(embed_dim, num_heads, dropout)
+        
 
         seq_dim  = embed_dim * (max_tcr_length + max_epitope_length)
         reduced_ple_dim = 64
@@ -173,7 +180,11 @@ class TCR_Epitope_Transformer(nn.Module):
         # Add positional encoding
         tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
-    
+
+        for layer in self.transformer_layers:
+            tcr_emb     = layer(tcr_emb, key_padding_mask=tcr_mask)
+            epitope_emb = layer(epitope_emb, key_padding_mask=epitope_mask)
+
         tcr_out, epitope_out = self.rec_attn(
             tcr_emb, epitope_emb,
             key_padding_mask_tcr=tcr_mask,

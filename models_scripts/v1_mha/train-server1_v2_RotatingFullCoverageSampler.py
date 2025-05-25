@@ -51,7 +51,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v2"
+MODEL_NAME = "v2_newhyper_over"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -142,6 +142,42 @@ val_dataset = LazyTCR_Epitope_Dataset(
     trbv_dict, trbj_dict, mhc_dict
 )
 
+class OversampledFullDataset:
+    def __init__(self, dataset, labels):
+        self.dataset = dataset
+        self.labels = np.array(labels)
+        self.pos_indices = np.where(self.labels == 1)[0]
+        self.neg_indices = np.where(self.labels == 0)[0]
+
+    def build_oversampled_indices(self):
+        num_neg = len(self.neg_indices)
+        num_pos = len(self.pos_indices)
+
+        additional_pos_indices = np.random.choice(
+            self.pos_indices, size=num_neg - num_pos, replace=True
+        )
+        final_indices = np.concatenate([
+            self.neg_indices,
+            self.pos_indices,
+            additional_pos_indices
+        ])
+        np.random.shuffle(final_indices)
+        return final_indices
+
+    def get_loader(self, batch_size=32):
+        indices = self.build_oversampled_indices()
+        subset = Subset(self.dataset, indices)
+        return DataLoader(subset, batch_size=batch_size, shuffle=True)
+        
+num_pos = len(train_data[train_data["Binding"] == 1])
+num_neg = len(train_data[train_data["Binding"] == 0])
+
+# Data loaders
+train_labels = train_data['Binding'].values
+balanced_generator = OversampledFullDataset(train_dataset, train_labels)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+'''
 class RotatingFullCoverageSampler:
     def __init__(self, dataset, labels, batch_size=32):
         self.dataset = dataset
@@ -190,6 +226,7 @@ print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu ver
 train_labels = train_data['Binding'].values 
 balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+'''
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -324,6 +361,7 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
@@ -360,6 +398,7 @@ for epoch in range(epochs):
     "val_auc": auc,
     "val_ap": ap,
     "val_f1": f1,
+    "val_macro_f1": macro_f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
@@ -416,9 +455,11 @@ for epoch in range(epochs):
                 if len(unique_classes) == 2:
                     tpp_auc = roc_auc_score(labels, outputs)
                     tpp_ap = average_precision_score(labels, outputs)
+                    tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
                 else:
                     tpp_auc = None
                     tpp_ap = None
+                    tpp_macro_f1 = None
                     print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
 
                 tpp_f1 = f1_score(labels, preds, zero_division=0)
@@ -430,12 +471,14 @@ for epoch in range(epochs):
                 print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
                 print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
+                print(f"Macro F1:   {tpp_macro_f1:.4f}")
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
                 log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
+                    f"val_{tpp}_macro_f1": tpp_macro_f1,
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
                     f"val_{tpp}_recall": tpp_recall,
@@ -519,7 +562,6 @@ for epoch in range(epochs):
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
 
-    
 
     # Early Stopping Check
     if ap > best_ap:
@@ -533,9 +575,18 @@ for epoch in range(epochs):
             print("Early stopping triggered.")
             break
 
+    # --- Modell nach jeder Epoche speichern ---
+    model_save_dir = "results/trained_models/v2_newhyper_over/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f" Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    wandb.save(model_epoch_path)
+
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v1_mha", exist_ok=True)
+    os.makedirs("results/trained_models/v2_newhyper_over", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
