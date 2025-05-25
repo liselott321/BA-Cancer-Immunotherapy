@@ -124,39 +124,16 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 train_dataset = LazyTCR_Epitope_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings)
 val_dataset = LazyTCR_Epitope_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings)
 
-class OversampledFullDataset:
-    def __init__(self, dataset, labels):
-        self.dataset = dataset
-        self.labels = np.array(labels)
-        self.pos_indices = np.where(self.labels == 1)[0]
-        self.neg_indices = np.where(self.labels == 0)[0]
-
-    def build_oversampled_indices(self):
-        num_neg = len(self.neg_indices)
-        num_pos = len(self.pos_indices)
-
-        additional_pos_indices = np.random.choice(
-            self.pos_indices, size=num_neg - num_pos, replace=True
-        )
-        final_indices = np.concatenate([
-            self.neg_indices,
-            self.pos_indices,
-            additional_pos_indices
-        ])
-        np.random.shuffle(final_indices)
-        return final_indices
-
-    def get_loader(self, batch_size=32):
-        indices = self.build_oversampled_indices()
-        subset = Subset(self.dataset, indices)
-        return DataLoader(subset, batch_size=batch_size, shuffle=True)
-        
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
 
 # Data loaders
 train_labels = train_data['Binding'].values
-balanced_generator = OversampledFullDataset(train_dataset, train_labels)
+from torch.utils.data import WeightedRandomSampler
+
+weights = [1/num_pos if label==1 else 1/num_neg for label in train_labels]
+sampler = WeightedRandomSampler(weights, len(train_labels), replacement=True)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -180,8 +157,8 @@ wandb.watch(model, log="all", log_freq=100)
 # Loss
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
-pos_weight = torch.tensor([0.5* neg_count / pos_count]).to(device)
-criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+pos_weight = torch.tensor([neg_count / pos_count]).to(device)
+criterion = nn.BCEWithLogitsLoss() #hier nicht nötig mit: pos_weight=pos_weight
 
 # Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
@@ -189,7 +166,7 @@ batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
 optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
 num_layers = args.num_layers if args.num_layers else wandb.config.num_layers
 num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
-weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.00988986))
+weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
 
 if optimizer_name == "adam":
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -210,7 +187,6 @@ for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
-    train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, label in train_loader_tqdm:
@@ -251,6 +227,10 @@ for epoch in range(epochs):
             all_outputs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
 
+    # Clip probabilities for calibration step (avoid log(0))
+    all_outputs = np.clip(all_outputs, 1e-5, 1 - 1e-5)
+    raw_logits = np.log(all_outputs / (1 - all_outputs))
+
     precision_curve, recall_curve, thresholds = precision_recall_curve(all_labels, all_outputs)
     # F1 Score berechnen für alle Thresholds
     f1_scores = 2 * (precision_curve * recall_curve) / (precision_curve + recall_curve + 1e-8)
@@ -273,14 +253,13 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
-    macro_f1 = f1_score(all_labels, all_preds, average="macro")
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, Val Macro F1: {macro_f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
@@ -310,7 +289,6 @@ for epoch in range(epochs):
     "val_auc": auc,
     "val_ap": ap,
     "val_f1": f1,
-    "val_macro_f1": macro_f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
@@ -373,7 +351,6 @@ for epoch in range(epochs):
                     print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
 
                 tpp_f1 = f1_score(labels, preds, zero_division=0)
-                tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
                 tpp_acc = accuracy_score(labels, preds)
                 tpp_precision = precision_score(labels, preds, zero_division=0)
                 tpp_recall = recall_score(labels, preds, zero_division=0)
@@ -382,14 +359,12 @@ for epoch in range(epochs):
                 print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
                 print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
-                print(f"Macro F1: {tpp_macro_f1:.4f}")
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
                 log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
-                    f"val_{tpp}_macro_f1": tpp_macro_f1,
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
                     f"val_{tpp}_recall": tpp_recall,
@@ -440,6 +415,7 @@ for epoch in range(epochs):
                 print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
                 print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
                 
+                # Logge es optional nach wandb
                 wandb.log({
                     f"val_{tpp}_temperature": temperature,
                     f"val_{tpp}_f1_scaled": scaled_f1,
