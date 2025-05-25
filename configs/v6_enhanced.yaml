@@ -22,4 +22,4 @@ embeddings:
   epitope_valid: "../../data/embeddings/beta/allele/dimension_1024/padded_valid_epitope_embeddings_final.h5"
   tcr_test: "../../data/embeddings/beta/allele/dimension_1024/padded_test_tcr_embeddings_final.h5"
   epitope_test: "../../data/embeddings/beta/allele/dimension_1024/padded_test_epitope_embeddings_final.h5"
-  physchem: "../../data/physico/descriptor_encoded_physchem.h5"
+  physchem: "../../../../data/physico/descriptor_encoded_physchem.h5"

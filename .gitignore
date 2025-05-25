@@ -41,6 +41,7 @@ results/trained_models/v1_mha/v1_mha_1024_shap.pth
 data/
 models_scripts/v1_mha/captum/epi_descriptors.csv
 models_scripts/v1_mha/captum/tcr_descriptors.csv
+models_scripts/v1_mha/model_checkpoint_epoch*
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
