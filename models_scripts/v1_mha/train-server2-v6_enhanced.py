@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # Import the enhanced model
-from models.morning_stars_v1.beta.v6_1024_all_features_enhanced import TCR_Epitope_Transformer_Enhanced, LazyFullFeatureDataset, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -42,7 +42,7 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
 # physchem_path = config['embeddings']['physchem']
-physchem_path= "../../../../data/physico/descriptor_encoded_physchem.h5"
+physchem_path= "../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
 physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
@@ -54,7 +54,7 @@ os.makedirs(checkpoint_dir, exist_ok=True)
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_enhanced"
+MODEL_NAME = "v6_all_features_sameAttention"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -66,7 +66,7 @@ wandb.config.update({
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
     "use_checkpointing": True,  # Add new parameters for enhanced model
-    "bidirectional_cross_attention": True
+    "bidirectional_cross_attention": False
 })
 
 # Embeddings paths from config/args
@@ -86,7 +86,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
 
 # Per Sequenz joinen
 train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
@@ -131,7 +131,7 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-emb_physchem_path = "../../../../data/physico/descriptor_encoded_physchem.h5"  # change if not server 1
+emb_physchem_path = "../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
 
 with h5py.File(emb_physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
@@ -199,7 +199,7 @@ if device.type == "cuda":
 
 dropout = args.dropout if args.dropout else config['dropout']
 
-model = TCR_Epitope_Transformer_Enhanced(
+model = TCR_Epitope_Transformer_AllFeatures(
     embed_dim=config['embed_dim'],
     num_heads=config['num_heads'],
     num_layers=config['num_layers'],

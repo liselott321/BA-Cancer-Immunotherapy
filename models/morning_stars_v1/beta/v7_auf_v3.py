@@ -103,6 +103,78 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
             torch.tensor(label, dtype=torch.float32),
         )
 
+
+class ReciprocalAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super().__init__()
+        self.peptide_to_tcr = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.tcr_to_peptide = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+
+        self.norm_peptide = nn.LayerNorm(embed_dim)
+        self.norm_tcr = nn.LayerNorm(embed_dim)
+
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, tcr_emb, peptide_emb, key_padding_mask_tcr=None, key_padding_mask_epi=None):
+        pep2tcr, _ = self.peptide_to_tcr(peptide_emb, tcr_emb, tcr_emb, key_padding_mask=key_padding_mask_tcr)
+        peptide_out = self.norm_peptide(peptide_emb + self.dropout(pep2tcr))
+    
+        tcr2pep, _ = self.tcr_to_peptide(tcr_emb, peptide_emb, peptide_emb, key_padding_mask=key_padding_mask_epi)
+        tcr_out = self.norm_tcr(tcr_emb + self.dropout(tcr2pep))
+    
+        return tcr_out, peptide_out
+
+
+class TCR_Epitope_Transformer_Reciprocal(nn.Module):
+    def __init__(self, embed_dim=128, num_heads=4, max_tcr_length=43, max_epitope_length=43, dropout=0.1, physchem_dim=10, classifier_hidden_dim=64):
+        super().__init__()
+
+        self.tcr_embedding = nn.Linear(1024, embed_dim)
+        self.epitope_embedding = nn.Linear(1024, embed_dim)
+
+        self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
+        self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
+        self.rec_attn = ReciprocalAttention(embed_dim, num_heads, dropout)
+
+
+        self.tcr_physchem_embed = PeriodicEmbedding(physchem_dim)
+        self.epi_physchem_embed = PeriodicEmbedding(physchem_dim)
+
+        total_len = max_tcr_length + max_epitope_length
+        self.classifier_input_dim = embed_dim * total_len + 2 * self.tcr_physchem_embed.output_dim
+
+        self.classifier = Classifier(self.classifier_input_dim, classifier_hidden_dim, dropout)
+
+    def forward(self, tcr, epitope, tcr_physchem=None, epi_physchem=None):
+        tcr_emb = self.tcr_embedding(tcr) + self.tcr_positional_encoding[:, :tcr.size(1), :]
+        epitope_emb = self.epitope_embedding(epitope) + self.epitope_positional_encoding[:, :epitope.size(1), :]
+
+        # Masken berechnen: (batch_size, seq_len)
+        tcr_mask = (tcr.sum(dim=-1) == 0)  # True bei Padding
+        epi_mask = (epitope.sum(dim=-1) == 0)
+        
+        # Apply Attention mit Masken
+        tcr_out, epitope_out = self.rec_attn(
+            tcr_emb, epitope_emb,
+            key_padding_mask_tcr=tcr_mask,
+            key_padding_mask_epi=epi_mask
+        )
+
+
+        combined = torch.cat([tcr_out, epitope_out], dim=1)
+        flattened = combined.view(combined.size(0), -1)
+
+        if tcr_physchem is not None and epi_physchem is not None:
+            tcr_physchem = self.tcr_physchem_embed(tcr_physchem)
+            epi_physchem = self.epi_physchem_embed(epi_physchem)
+            flattened = torch.cat([flattened, tcr_physchem, epi_physchem], dim=1)
+
+        return self.classifier(flattened).squeeze(1)
+
+# PeriodicEmbedding and Classifier must be the same as in v7
+# You can replace TCR_Epitope_Transformer with TCR_Epitope_Transformer_Reciprocal in your training script
+
+'''
 class TCR_Epitope_Transformer(nn.Module):
     def __init__(self, embed_dim=128, num_heads=4, num_layers=2, max_tcr_length=43, max_epitope_length=43,
                  dropout=0.1, classifier_hidden_dim=64, physchem_dim=10):
@@ -165,3 +237,4 @@ class TCR_Epitope_Transformer(nn.Module):
             final_input = torch.cat([tcr_vector, epitope_vector], dim=1)
     
         return self.classifier(final_input).squeeze(1)
+'''

@@ -52,6 +52,9 @@ physchem_file     = h5py.File(physchem_raw_h5, 'r')
 
 PLE_H5 = config['embeddings']['ple_h5']  # z.B. "../../data/physico/ple/descriptor_physchem_ple.h5"
 ple_h5 = h5py.File(PLE_H5, 'r')
+ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
+ple_epi_tensor = torch.tensor(ple_h5["epi_ple"][:], dtype=torch.float32)
+
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -127,12 +130,12 @@ epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
 # ------------------------------------------------------------------
 # Create datasets and dataloaders (lazy loading)
-train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_h5)
-val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_h5)
+train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_tcr_tensor, ple_epi_tensor)
+val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_tcr_tensor, ple_epi_tensor)
 
 # 3) ple_dim aus dem HDF5 auslesen
-ple_dim = ple_h5['tcr_ple'].shape[1]
-print(ple_h5['tcr_ple'].shape[1])
+ple_dim = ple_tcr_tensor.shape[1]
+print(f"PLE Dim: {ple_dim}")
 
 class RotatingFullCoverageSampler:
     def __init__(self, dataset, labels, batch_size=32):
@@ -170,7 +173,7 @@ class RotatingFullCoverageSampler:
         np.random.shuffle(combined)
 
         subset = Subset(self.dataset, combined)
-        return DataLoader(subset, batch_size=self.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        return DataLoader(subset, batch_size=self.batch_size, shuffle=True, num_workers=2, pin_memory=True)
 
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
@@ -181,7 +184,7 @@ print(f"Mindestens {required_epochs} Epochen nötig, um alle Daten einmal zu ver
 # Data loaders
 train_labels = train_data['Binding'].values 
 balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
 # Initialize Model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -60,11 +60,12 @@ class AttentionBlock(nn.Module):
 
 
 class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
-    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings, ple_h5, ):
+    def __init__(self, data_frame, tcr_embeddings, epitope_embeddings, ple_tcr_tensor, ple_epi_tensor):
         self.data_frame = data_frame
         self.tcr_embeddings = tcr_embeddings
         self.epitope_embeddings = epitope_embeddings
-        self.ple_h5    = ple_h5
+        self.ple_tcr_tensor = ple_tcr_tensor
+        self.ple_epi_tensor = ple_epi_tensor
 
     def __len__(self):
         return len(self.data_frame)
@@ -78,15 +79,16 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
     
         tcr_embedding = self.tcr_embeddings[tcr_id][:]
         epitope_embedding = self.epitope_embeddings[epitope_id][:]
-        tcr_ple  = self.ple_h5["tcr_ple"][phys_idx]
-        epi_ple  = self.ple_h5["epi_ple"][phys_idx]
+        tcr_ple = self.ple_tcr_tensor[phys_idx]
+        epi_ple = self.ple_epi_tensor[phys_idx]
+
 
     
         return (
             torch.tensor(tcr_embedding, dtype=torch.float32),
             torch.tensor(epitope_embedding, dtype=torch.float32),
-            torch.tensor(tcr_ple, dtype=torch.float32),
-            torch.tensor(epi_ple, dtype=torch.float32),
+            torch.as_tensor(tcr_ple, dtype=torch.float32),
+            torch.as_tensor(epi_ple, dtype=torch.float32),
             torch.tensor(label, dtype=torch.float32),
         )
 
@@ -98,7 +100,8 @@ class TCR_Epitope_Transformer(nn.Module):
         self.embed_dim = embed_dim
         self.tcr_embedding = nn.Linear(1024, embed_dim)
         self.epitope_embedding = nn.Linear(1024, embed_dim)
-
+        self.ple_reduction = nn.Linear(ple_dim, 64)
+        
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
 
@@ -107,7 +110,8 @@ class TCR_Epitope_Transformer(nn.Module):
         ])
 
         seq_dim  = embed_dim * (max_tcr_length + max_epitope_length)
-        total_dim = seq_dim + 2 * ple_dim  # tcr_ple + epi_ple
+        reduced_ple_dim = 64
+        total_dim = seq_dim + 2 * reduced_ple_dim  # tcr_ple + epi_ple
 
         self.classifier = Classifier(total_dim, classifier_hidden_dim, dropout)
 
@@ -115,7 +119,8 @@ class TCR_Epitope_Transformer(nn.Module):
     def forward(self, tcr, epitope, tcr_ple, epi_ple):
         tcr_emb = self.tcr_embedding(tcr)
         epitope_emb = self.epitope_embedding(epitope)
-    
+        tcr_ple = self.ple_reduction(tcr_ple)
+        epi_ple = self.ple_reduction(epi_ple)
         # Create masks
         tcr_mask = (tcr.sum(dim=-1) == 0)
         epitope_mask = (epitope.sum(dim=-1) == 0)
