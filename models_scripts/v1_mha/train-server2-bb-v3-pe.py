@@ -202,7 +202,7 @@ batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
 optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
 num_layers = args.num_layers if args.num_layers else wandb.config.num_layers
 num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
-weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
+weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.00988986))
 
 if optimizer_name == "adam":
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -299,13 +299,14 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    macro_f1 = f1_score(all_labels, all_preds, average="macro")
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, Val Macro F1: {macro_f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
@@ -335,6 +336,7 @@ for epoch in range(epochs):
     "val_auc": auc,
     "val_ap": ap,
     "val_f1": f1,
+    "val_macro_f1": macro_f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
