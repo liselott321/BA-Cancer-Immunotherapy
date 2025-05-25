@@ -189,7 +189,7 @@ batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
 optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
 num_layers = args.num_layers if args.num_layers else wandb.config.num_layers
 num_heads = args.num_heads if args.num_heads else wandb.config.num_heads
-weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.0))
+weight_decay = args.weight_decay or wandb.config.get("weight_decay", config.get("weight_decay", 0.00988986))
 
 if optimizer_name == "adam":
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -373,6 +373,7 @@ for epoch in range(epochs):
                     print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
 
                 tpp_f1 = f1_score(labels, preds, zero_division=0)
+                tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
                 tpp_acc = accuracy_score(labels, preds)
                 tpp_precision = precision_score(labels, preds, zero_division=0)
                 tpp_recall = recall_score(labels, preds, zero_division=0)
@@ -381,12 +382,14 @@ for epoch in range(epochs):
                 print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
                 print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
+                print(f"Macro F1: {tpp_macro_f1:.4f}")
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
                 log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
+                    f"val_{tpp}_macro_f1": tpp_macro_f1,
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
                     f"val_{tpp}_recall": tpp_recall,
@@ -437,7 +440,6 @@ for epoch in range(epochs):
                 print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
                 print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
                 
-                # Logge es optional nach wandb
                 wandb.log({
                     f"val_{tpp}_temperature": temperature,
                     f"val_{tpp}_f1_scaled": scaled_f1,
