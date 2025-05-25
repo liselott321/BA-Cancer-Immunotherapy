@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # Import the enhanced model
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -42,21 +42,18 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
 # physchem_path = config['embeddings']['physchem']
-physchem_path= "../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
+physchem_path= "../../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
 physchem_file = h5py.File(physchem_path, 'r')
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
-# Directory for model checkpoints
-checkpoint_dir = os.path.join(os.path.dirname(model_path), "checkpoints")
-os.makedirs(checkpoint_dir, exist_ok=True)
 
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_sameAttention"
+MODEL_NAME = "v6_all_features_pe_oversample"
 experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
+run_name = f"Run_{os.path.basename(model_path).replace('.pth', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
 # Log hyperparameters explicitly
@@ -65,7 +62,7 @@ wandb.config.update({
     "embed_dim": config["embed_dim"],
     "max_tcr_length": config["max_tcr_length"],
     "max_epitope_length": config["max_epitope_length"],
-    "use_checkpointing": True,  # Add new parameters for enhanced model
+    "use_checkpointing": False,  # Add new parameters for enhanced model
     "bidirectional_cross_attention": False
 })
 
@@ -86,7 +83,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
+physchem_map = pd.read_csv("../../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
 
 # Per Sequenz joinen
 train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
@@ -131,7 +128,7 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-emb_physchem_path = "../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
+emb_physchem_path = "../../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
 
 with h5py.File(emb_physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
@@ -172,10 +169,11 @@ class OversampledFullDataset:
  
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
+print(f"Dataset composition: {num_pos} positive samples, {num_neg} negative samples")
 
 # Data loaders
 train_labels = train_data['Binding'].values 
-balanced_generator = RotatingFullCoverageSampler(train_dataset, train_labels, batch_size=batch_size)
+balanced_generator = OversampledFullDataset(train_dataset, train_labels)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 # Initialize Model
@@ -197,7 +195,7 @@ model = TCR_Epitope_Transformer_AllFeatures(
     trbv_vocab_size=trbv_vocab_size,
     trbj_vocab_size=trbj_vocab_size,
     mhc_vocab_size=mhc_vocab_size,
-    use_checkpointing=True  # Set to False if memory isn't an issue 
+    # use_checkpointing=True  # Set to False if memory isn't an issue 
 ).to(device)
 
 wandb.watch(model, log="all", log_freq=100)
@@ -228,42 +226,15 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, ver
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-min_epochs = required_epochs 
 patience = 3
 global_step = 0
-
-# Function to save model checkpoint to wandb - FIXED VERSION
-def save_checkpoint(model, epoch, optimizer, scheduler=None):
-    """Save model checkpoint with only serializable components"""
-    checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt")
-    
-    # Only save the essential components that are serializable
-    checkpoint = {
-        'epoch': epoch + 1,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }
-    
-    # Add scheduler state if it exists
-    if scheduler is not None:
-        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
-    
-    # Save the checkpoint
-    torch.save(checkpoint, checkpoint_path)
-    
-    # Log checkpoint to wandb
-    artifact = wandb.Artifact(f"model_checkpoint_epoch_{epoch+1}", type="model")
-    artifact.add_file(checkpoint_path)
-    wandb.log_artifact(artifact)
-    
-    return checkpoint_path
 
 # Training Loop ---------------------------------------------------------------
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
-    train_loader = balanced_generator.get_loader()
+    train_loader = balanced_generator.get_loader(batch_size=batch_size)
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label in train_loader_tqdm:
@@ -340,13 +311,14 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    macro_f1 = f1_score(all_labels, all_preds, average="macro")  # Added macro-f1 from first script
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step, commit=False)
 
     # Confusion matrix components
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+    print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}, Val Macro F1: {macro_f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
@@ -364,7 +336,7 @@ for epoch in range(epochs):
     
     # Speichern und in wandb loggen
     os.makedirs("results", exist_ok=True)
-    roc_curve_path = f"results/roc_curve_epoch_{epoch+1}.png"
+    roc_curve_path = "results/roc_curve.png"
     plt.savefig(roc_curve_path)
     wandb.log({"roc_curve": wandb.Image(roc_curve_path)}, step=global_step, commit=False)
     plt.close()
@@ -376,6 +348,7 @@ for epoch in range(epochs):
         "val_auc": auc,
         "val_ap": ap,
         "val_f1": f1,
+        "val_macro_f1": macro_f1,  # Added macro-f1 logging
         "val_accuracy": accuracy,
         "val_tp": tp,
         "val_tn": tn,
@@ -413,6 +386,7 @@ for epoch in range(epochs):
                     print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
 
                 tpp_f1 = f1_score(labels, preds, zero_division=0)
+                tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)  # Added macro-f1 for TPP tasks
                 tpp_acc = accuracy_score(labels, preds)
                 tpp_precision = precision_score(labels, preds, zero_division=0)
                 tpp_recall = recall_score(labels, preds, zero_division=0)
@@ -421,12 +395,14 @@ for epoch in range(epochs):
                 print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
                 print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
+                print(f"Macro F1: {tpp_macro_f1:.4f}")  # Added macro-f1 print
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
                 log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
+                    f"val_{tpp}_macro_f1": tpp_macro_f1,  # Added macro-f1 logging for TPP tasks
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
                     f"val_{tpp}_recall": tpp_recall,
@@ -463,12 +439,8 @@ for epoch in range(epochs):
                 print(f"\n Keine Beispiele für {tpp} im Validationset.")
     else:
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
-    
-    # Save model checkpoint after each epoch (FIXED VERSION)
-    checkpoint_path = save_checkpoint(model, epoch, optimizer, scheduler)
-    print(f"Saved checkpoint for epoch {epoch+1} to {checkpoint_path}")
 
-    # Early Stopping: nur auf multiples von `min_epochs` schauen
+    # Early Stopping
     if ap > best_ap:
         best_ap = ap
         best_model_state = model.state_dict()
@@ -477,10 +449,23 @@ for epoch in range(epochs):
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
-    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+    # Check for early stopping
+    if early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
+
+    # --- Modell nach jeder Epoche speichern (adapted from first script) ---
+    model_save_dir = "results/trained_models/v6_all_features_pe/epochs"
+    os.makedirs(model_save_dir, exist_ok=True)
+    model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
+    torch.save(model.state_dict(), model_epoch_path)
+    print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+
+    # Save model to wandb as artifact
+    artifact = wandb.Artifact(f"{run_name}_epoch_{epoch+1}", type="model")
+    artifact.add_file(model_epoch_path)
+    wandb.log_artifact(artifact)
+    wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
@@ -488,7 +473,7 @@ if best_model_state:
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
-    artifact = wandb.Artifact(run_name + "_best_model", type="model")
+    artifact = wandb.Artifact(run_name + "_model", type="model")
     artifact.add_file(model_path)
     wandb.log_artifact(artifact)
 

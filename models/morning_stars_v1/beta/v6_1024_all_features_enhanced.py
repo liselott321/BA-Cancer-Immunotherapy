@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from torch.utils.checkpoint import checkpoint
 
 class ResidualBlock(nn.Module):
     def __init__(self, hidden_dim, dropout):
@@ -281,12 +280,10 @@ class TCR_Epitope_Transformer_Enhanced(nn.Module):
     def __init__(self, embed_dim=128, num_heads=4, num_layers=2,
                  max_tcr_length=43, max_epitope_length=43, dropout=0.1,
                  classifier_hidden_dim=64, physchem_dim=10,
-                 trbv_vocab_size=50, trbj_vocab_size=20, mhc_vocab_size=100,
-                 use_checkpointing=True):
+                 trbv_vocab_size=50, trbj_vocab_size=20, mhc_vocab_size=100):
         super().__init__()
 
         self.embed_dim = embed_dim
-        self.use_checkpointing = use_checkpointing
         
         # Embeddings
         self.tcr_embedding = nn.Linear(1024, embed_dim)
@@ -332,10 +329,6 @@ class TCR_Epitope_Transformer_Enhanced(nn.Module):
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Embedding):
                 nn.init.normal_(m.weight, mean=0, std=0.02)
-    
-    def _run_attention_block(self, layer, x, mask=None):
-        """Helper function for checkpointing"""
-        return layer(x, key_padding_mask=mask)
         
     def forward(self, tcr, epitope, tcr_physchem, epi_physchem, trbv, trbj, mhc):
         # Embed sequences
@@ -355,12 +348,9 @@ class TCR_Epitope_Transformer_Enhanced(nn.Module):
         tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
 
-        # Process TCR through transformer layers with gradient checkpointing if enabled
-        for i, layer in enumerate(self.transformer_layers):
-            if self.use_checkpointing and self.training:
-                tcr_emb = checkpoint(self._run_attention_block, layer, tcr_emb, tcr_mask)
-            else:
-                tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
+        # Process TCR through transformer layers
+        for layer in self.transformer_layers:
+            tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
 
         # Enhanced bidirectional cross-attention between TCR and epitope
         tcr_updated, epitope_updated = self.cross_attn_block(tcr_emb, epitope_emb, 
