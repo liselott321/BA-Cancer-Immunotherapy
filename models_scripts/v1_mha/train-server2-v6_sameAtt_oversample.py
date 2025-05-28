@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 # Import the enhanced model
-from models.morning_stars_v1.beta.v6_1024_all_features_enhanced import TCR_Epitope_Transformer_Enhanced, LazyFullFeatureDataset #, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
@@ -42,8 +42,8 @@ val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
 # physchem_path = config['embeddings']['physchem']
-physchem_path= "../../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
-physchem_file = h5py.File(physchem_path, 'r')
+physchem_path= "../../../data/physico/descriptor_encoded_physchem.h5" # for server 2 use 4x "../"
+physchem_file = h5py.File(physchem_path, 'r') ## checked?
 
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
@@ -51,7 +51,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v6_all_features_pe_biderCrossAtt_oversample" # change to start new Run in wandb
+MODEL_NAME = "v6_all_features_pe_sameAtt_oversample"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pth', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -83,7 +83,7 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-physchem_map = pd.read_csv("../../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
+physchem_map = pd.read_csv("../../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t") # for server 2 use 4x "../"
 
 # Per Sequenz joinen
 train_data = pd.merge(train_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
@@ -128,7 +128,7 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-emb_physchem_path = "../../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
+emb_physchem_path = "../../../data/physico/descriptor_encoded_physchem.h5"  # for server 2 use 4x "../"
 
 with h5py.File(emb_physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
@@ -184,7 +184,7 @@ if device.type == "cuda":
 
 dropout = args.dropout if args.dropout else config['dropout']
 
-model = TCR_Epitope_Transformer_Enhanced(
+model = TCR_Epitope_Transformer_AllFeatures(
     embed_dim=config['embed_dim'],
     num_heads=config['num_heads'],
     num_layers=config['num_layers'],
@@ -455,7 +455,7 @@ for epoch in range(epochs):
         break
 
     # --- Modell nach jeder Epoche speichern (adapted from first script) ---
-    model_save_dir = "results/trained_models/v6_all_features_pe_biderCrossAtt_noTcrAtt/epochs"
+    model_save_dir = "results/trained_models/v6_all_features_pe_doubleCross_oversample/epochs"
     os.makedirs(model_save_dir, exist_ok=True)
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
     torch.save(model.state_dict(), model_epoch_path)
@@ -469,7 +469,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v6_all_features_pe", exist_ok=True)
+    os.makedirs("results/trained_models/v6_all_features_pe_sameAtt_oversample", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
