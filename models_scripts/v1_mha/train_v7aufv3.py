@@ -53,7 +53,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v7_auf_v3"
+MODEL_NAME = "v7_new_hyper"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -299,6 +299,7 @@ for epoch in range(epochs):
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
     f1 = f1_score(all_labels, all_preds)
+    macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
@@ -335,6 +336,7 @@ for epoch in range(epochs):
     "val_auc": auc,
     "val_ap": ap,
     "val_f1": f1,
+    "val_macro_f1": macro_f1,
     "val_accuracy": accuracy,
     "val_tp": tp,
     "val_tn": tn,
@@ -391,10 +393,12 @@ for epoch in range(epochs):
                 if len(unique_classes) == 2:
                     tpp_auc = roc_auc_score(labels, outputs)
                     tpp_ap = average_precision_score(labels, outputs)
+                    tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
                 else:
                     tpp_auc = None
                     tpp_ap = None
-                    print(f"  {tpp}: Nur eine Klasse vorhanden – AUC & AP übersprungen.")
+                    tpp_macro_f1 = None
+                    print(f"  {tpp}: Nur eine Klasse vorhanden – AUC, MACRO & AP übersprungen.")
 
                 tpp_f1 = f1_score(labels, preds, zero_division=0)
                 tpp_acc = accuracy_score(labels, preds)
@@ -405,12 +409,14 @@ for epoch in range(epochs):
                 print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
                 print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
                 print(f"F1:   {tpp_f1:.4f}")
+                print(f"Macro F1:   {tpp_macro_f1:.4f}")
                 print(f"Acc:  {tpp_acc:.4f}")
                 print(f"Precision: {tpp_precision:.4f}")
                 print(f"Recall:    {tpp_recall:.4f}")
 
                 log_dict = {
                     f"val_{tpp}_f1": tpp_f1,
+                    f"val_{tpp}_macro_f1": tpp_macro_f1,
                     f"val_{tpp}_accuracy": tpp_acc,
                     f"val_{tpp}_precision": tpp_precision,
                     f"val_{tpp}_recall": tpp_recall,
@@ -506,7 +512,7 @@ for epoch in range(epochs):
         break
 
     # --- Modell nach jeder Epoche speichern ---
-    model_save_dir = "results/trained_models/v7_auf_v3/epochs"
+    model_save_dir = "results/trained_models/v7_new_hyper/epochs"
     os.makedirs(model_save_dir, exist_ok=True)
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
     torch.save(model.state_dict(), model_epoch_path)
@@ -516,7 +522,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v7_auf_v3", exist_ok=True)
+    os.makedirs("results/trained_models/v7_new_hyper", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 
