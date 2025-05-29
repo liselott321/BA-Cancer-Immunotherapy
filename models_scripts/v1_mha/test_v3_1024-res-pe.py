@@ -79,17 +79,17 @@ model = TCR_Epitope_Transformer(
     config['max_tcr_length'],
     config['max_epitope_length'],
     dropout=config.get('dropout', 0.1),
-    classifier_hidden_dim=config.get('classifier_hidden_dim', 128), #64 oder 128
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64), #64 oder 128
     physchem_dim=inferred_physchem_dim  
 ).to(device)
 
 
-'''# Modell von wandb laden
+# Modell von wandb laden
 print("Lade Modell von wandb...")
 api = wandb.Api()
 runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # Direktes Laden über bekannten Namen
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v7" #anpassen, wenn andere version latest oder v12
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v3_mha_resh_model:v12" #anpassen, wenn andere version latest oder v12
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -97,11 +97,10 @@ model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
 # Gewichte ins Modell laden
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
-print("✅ Modell geladen:", artifact.name)'''
+print("✅ Modell geladen:", artifact.name)
 
-model_file = "results/trained_models/v1_mha/physico/model_epoch_4.pt" #3
+model_file = "results/trained_models/v3_mha_res/model_epoch_7.pt" #3
 print(f"Lade Modell aus lokaler Datei: {model_file}")
-
 
 # Testdurchlauf
 all_labels, all_outputs, all_preds = [], [], []
@@ -132,6 +131,7 @@ all_preds = np.array(all_preds)
 auc = roc_auc_score(all_labels, all_outputs)
 ap = average_precision_score(all_labels, all_outputs)
 f1 = f1_score(all_labels, all_preds)
+macro_f1 = f1_score(all_labels, all_preds, average="macro")
 accuracy = (all_preds == all_labels).mean()
 precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
@@ -143,6 +143,7 @@ print("\nTestergebnisse:")
 print(f"AUC:       {auc:.4f}")
 print(f"AP:        {ap:.4f}")
 print(f"F1 Score:  {f1:.4f}")
+print(f"Macro F1:  {macro_f1:.4f}")
 print(f"Accuracy:  {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
@@ -152,6 +153,7 @@ wandb.log({
     "test_auc": auc,
     "test_ap": ap,
     "test_f1": f1,
+    "test_macro_f1": macro_f1,
     "test_accuracy": accuracy,
     "test_precision": precision,
     "test_recall": recall
@@ -174,6 +176,7 @@ if "task" in test_data.columns:
             tpp_ap = average_precision_score(labels, outputs) if len(unique_classes) == 2 else None
 
             tpp_f1 = f1_score(labels, preds, zero_division=0)
+            tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
             tpp_acc = (preds == labels).mean()
             tpp_precision = precision_score(labels, preds, zero_division=0)
             tpp_recall = recall_score(labels, preds, zero_division=0)
@@ -182,6 +185,7 @@ if "task" in test_data.columns:
             print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
             print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
             print(f"F1:   {tpp_f1:.4f}")
+            print(f"Macro F1: {tpp_macro_f1:.4f}")
             print(f"Acc:  {tpp_acc:.4f}")
             print(f"Precision: {tpp_precision:.4f}")
             print(f"Recall:    {tpp_recall:.4f}")
@@ -189,6 +193,7 @@ if "task" in test_data.columns:
             # Wandb-Logging
             log_dict = {
                 f"{tpp}_f1": tpp_f1,
+                f"{tpp}_macro_f1": tpp_macro_f1,
                 f"{tpp}_accuracy": tpp_acc,
                 f"{tpp}_precision": tpp_precision,
                 f"{tpp}_recall": tpp_recall,
@@ -227,5 +232,15 @@ if "task" in test_data.columns:
             print(f"\nKeine Beispiele für {tpp}")
 else:
     print("\nKeine 'task'-Spalte in Testdaten – TPP-Auswertung übersprungen.")
+
+# General Confusion Matrix Logging (all tasks combined)
+wandb.log({
+    "General_confusion_matrix": wandb.plot.confusion_matrix(
+        y_true=all_labels.astype(int),
+        preds=all_preds.astype(int),
+        class_names=["Not Binding", "Binding"],
+        title="Confusion Matrix – General"
+    )
+})
 
 wandb.finish()

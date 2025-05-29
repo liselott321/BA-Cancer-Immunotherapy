@@ -491,6 +491,10 @@ for epoch in range(epochs):
     torch.save(model.state_dict(), model_epoch_path)
     print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
 
+    # Save model to wandb as artifact
+    artifact = wandb.Artifact(f"{run_name}_epoch_{epoch+1}", type="model")
+    artifact.add_file(model_epoch_path)
+    wandb.log_artifact(artifact)
     wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------

@@ -494,8 +494,7 @@ for epoch in range(epochs):
         early_stop_counter += 1
         print(f"No improvement in AP. Early stop counter: {early_stop_counter}/{patience}")
     
-    # Check: nur abbrechen, wenn epoch ein Vielfaches von min_epochs ist UND patience erreicht ist
-    if ((epoch + 1) % min_epochs == 0) and early_stop_counter >= patience:
+    if early_stop_counter >= patience:
         print(f"Early stopping triggered at epoch {epoch+1}.")
         break
 
@@ -506,6 +505,10 @@ for epoch in range(epochs):
     torch.save(model.state_dict(), model_epoch_path)
     print(f"📦 Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
 
+    # Save model to wandb as artifact
+    artifact = wandb.Artifact(f"{run_name}_epoch_{epoch+1}", type="model")
+    artifact.add_file(model_epoch_path)
+    wandb.log_artifact(artifact)
     wandb.save(model_epoch_path)
 
 # Save best model -------------------------------------------------------------------------------
