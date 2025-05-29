@@ -211,3 +211,4 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         ], dim=1)
 
         return self.classifier(final_vector).squeeze(1)
+
