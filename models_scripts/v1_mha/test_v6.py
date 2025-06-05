@@ -20,8 +20,8 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-# from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+# from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
@@ -38,7 +38,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name=f"Test_Run_v6_pe_bidirCrossAtt_oversample_osa_{epoch_model}",  # update accordingly !!!!!!!!!!!!!!!!
+    name=f"Test_Run_v6_pe_sameAtt_oversample_last_{epoch_model}",  # update accordingly !!!!!!!!!!!!!!!!
     config=config
 )
 
@@ -137,8 +137,11 @@ runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 
 # Direktes Laden über bekannten Namen
 # ba_cancerimmunotherapy/dataset-allele/Run_v6_doubleCross_oversample_epoch_1:v1
-
-artifact_name = f"ba_cancerimmunotherapy/dataset-allele/Run_v6_doubleCross_oversample_epoch_{epoch_model}:v0" #anpassen, wenn andere version 
+# ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_normDrop_epoch_1:v0
+# ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_fullyRot_wMacrof1h_epoch_1:v0
+# ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_normDrop_epoch_7:v0
+# ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_last_epoch_1:v0
+artifact_name = f"ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_last_epoch_{epoch_model}:v0" #anpassen, wenn andere version 
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
