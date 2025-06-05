@@ -6,24 +6,34 @@
 - [@oscario-20](https://github.com/oscario-20)
 
 ## About this Project
-- satz fehlt jetzt noch
-- 
-### Data Sources
-The primary data sources include:
-- [VDJdb](https://vdjdb.cdr3.net/)
-- [McPAS-TCR](http://friedmanlab.weizmann.ac.il/McPAS-TCR/)
-- [IEDB](https://www.iedb.org/)
-- [10X Genomics](https://www.10xgenomics.com/datasets?query=%22A%20new%20way%20of%20exploring%20immunity%E2%80%93linking%20highly%20multiplexed%20antigen%20recognition%20to%20immune%20repertoire%20and%20phenotype%22&page=1&configure%5BhitsPerPage%5D=50&configure%5BmaxValu)
+This project investigates transformer-based models for predicting the binding specificity between T-cell receptors (TCRs) and epitopes, a crucial task for personalized cancer immunotherapy. We systematically evaluate and develop multiple model architectures, starting from a basic transformer, and incrementally introduce genetic context information, physicochemical features, and reciprocal attention mechanisms to capture the complexity of TCR-epitope interactions.
 
-We harmonize TCR and pMHC sequences (positive binders) and generate synthetic negative examples. On the **ba** branch, we apply balanced negative sampling; on the **10X** branch, we use the raw 10X dataset.
+This repository implements and extends the work presented in our Bachelor thesis at Zurich University of Applied Sciences, providing all code, data pipelines, and reproducible experiments.
+
+
+### Data Sources
+We compiled a comprehensive dataset from the following primary sources:
+
+- **[VDJdb](https://vdjdb.cdr3.net/):** Curated database of TCR sequences with known epitope specificity.
+- **[McPAS-TCR](http://friedmanlab.weizmann.ac.il/McPAS-TCR/):** Pathology-associated TCR sequences.
+- **[IEDB](https://www.iedb.org/):** Immune Epitope Database and Analysis Resource.
+- **[10X Genomics](https://www.10xgenomics.com/datasets):** High-throughput immune repertoire sequencing data.
+
 
 ### Data Processing @ Arina stimmt das noch?
 All raw files are standardized, harmonized, and split into train/validation/test sets. Negative samples are generated synthetically (see “Data Pipeline” section).  
 For details, see the [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section.
 
 ### Model Architectures
-We explore multiple deep-learning architectures, including:
-v1-v6
+
+We developed and compared the following transformer-based model versions, each adding new features or architectural components:
+
+- **V1:** Basic multi-head attention transformer using only sequence data (TCR, epitope).
+- **V2:** Adds genetic context features (TRBV, TRBJ, MHC allele embeddings).
+- **V3:** Incorporates physicochemical properties of TCR and epitope sequences using periodic (sin/cos) embeddings.
+- **V4:** Combines sequence data, genetic context, and physicochemical features.
+- **V5:** Introduces reciprocal attention mechanisms (inspired by TSpred), genetic context, and physicochemical latent embeddings.
+- **V6:** Similar 
 
 ### Repository Structure
 `data/`: This will be used to store data locally\
@@ -89,7 +99,7 @@ pip install sentencepiece
 ## Run Locally
 - Clone the project
 ```bash
-  git clone https://github.com/tomickristina/PA-Cancer-Immunotherapy-Transformer/BA_ZHAW
+  git clone https://github.com/liselott321/BA-Cancer-Immunotherapy.git
 ```
 - Create conda environment as explained above and use it from now on
 - Open the project in the IDE of your choice
