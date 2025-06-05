@@ -50,6 +50,7 @@ To generate the PLE features, please run the following scripts in order, all loc
    _Generates the final latent embeddings for use in the model._
 
 **You must run these scripts sequentially before training any model version that uses PLE features.**
+
 ---
 
 #### Ready-to-Use Data
