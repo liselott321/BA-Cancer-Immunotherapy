@@ -227,9 +227,9 @@ class TCR_Epitope_Transformer_Enhanced(nn.Module):
         tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
 
-        # # Process TCR through transformer layers
-        # for layer in self.transformer_layers:
-        #     tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
+        # Process TCR through transformer layers
+        for layer in self.transformer_layers:
+            tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
 
         # Enhanced bidirectional cross-attention between TCR and epitope
         tcr_updated, epitope_updated = self.cross_attn_block(tcr_emb, epitope_emb, 
