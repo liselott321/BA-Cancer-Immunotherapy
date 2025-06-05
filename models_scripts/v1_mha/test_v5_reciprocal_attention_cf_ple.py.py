@@ -14,21 +14,21 @@ from tqdm import tqdm
 import wandb
 import matplotlib.pyplot as plt
 
-# === Lokale Imports ===
+# === Local Imports ===
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from models.morning_stars_v1.beta.v5_ple_offline_ReciprocalAttention_v2 import (
+from models.morning_stars_v1.beta.v5_reciprocal_attention_cf_ple import (
     TCR_Epitope_Transformer,
     LazyTCR_Epitope_Descriptor_Dataset
 )
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
 
-# === Konfig einlesen ===
+# === Load configuration ===
 args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
-# === W&B Initialisierung ===
+# === Initialize Weights & Biases ===
 run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
@@ -37,23 +37,23 @@ run = wandb.init(
     config=config
 )
 
-# === Dataset‐Artifact laden ===
+# === Load dataset artifact from W&B ===
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download("./WnB_Testdata")
 
 train_path = os.path.join(data_dir, "allele/train.tsv")
 test_path  = os.path.join(data_dir, "allele/test.tsv")
 
-# === Train‐ und Test‐DataFrames laden ===
+# === Load Test dataframes ===
 df_train = pd.read_csv(train_path, sep="\t")
 df_test  = pd.read_csv(test_path,  sep="\t")
 
-# **Erst jetzt** prüfen, ob "task" in den Test‐Spalten vorhanden ist
+# Check that the test data contains the 'task' column
 assert "task" in df_test.columns, "'task'-Spalte fehlt in den Testdaten"
 print("TPP-Verteilung im Testset:")
 print(df_test["task"].value_counts())
 
-# === Mappings für TRBV, TRBJ und MHC anhand des Trainingssets erzeugen ===
+# === Create feature-to-index mappings based on the training set ===
 trbv_dict = {v: i for i, v in enumerate(df_train["TRBV"].unique())}
 trbj_dict = {v: i for i, v in enumerate(df_train["TRBJ"].unique())}
 mhc_dict  = {v: i for i, v in enumerate(df_train["MHC"].unique())}
@@ -62,12 +62,12 @@ UNKNOWN_TRBV_IDX = len(trbv_dict)
 UNKNOWN_TRBJ_IDX = len(trbj_dict)
 UNKNOWN_MHC_IDX  = len(mhc_dict)
 
-# Mapping auf das Testset anwenden
+# Apply the mappings to the test set
 df_test["TRBV_Index"] = df_test["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
 df_test["TRBJ_Index"] = df_test["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
 df_test["MHC_Index"]  = df_test["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
 
-# Sicherheit prüfen
+# Sanity checks
 assert df_test["TRBV_Index"].max() < (UNKNOWN_TRBV_IDX + 1), "TRBV_Index out of range!"
 assert df_test["TRBJ_Index"].max() < (UNKNOWN_TRBJ_IDX + 1), "TRBJ_Index out of range!"
 assert df_test["MHC_Index"].max()  < (UNKNOWN_MHC_IDX + 1),  "MHC_Index out of range!"
@@ -76,7 +76,7 @@ trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
 trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
 mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
 
-# === PLE laden ===
+# === Load physicochemical latent embeddings (PLE) ===
 ple_h5_path = config['embeddings']['ple_h5']  # Pfad zur .h5 Datei mit PLE
 with h5py.File(ple_h5_path, 'r') as ple_h5:
     ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
@@ -84,26 +84,26 @@ with h5py.File(ple_h5_path, 'r') as ple_h5:
 
 ple_dim = ple_tcr_tensor.shape[1]
 
-# === physchem_index zu df_test hinzufügen (PLE‐Mapping) ===
+# === Add PLE index to df_test ===
 physchem_map = pd.read_csv(config['embeddings']['physchem_map'], sep='\t')
 physchem_map.rename(columns={'idx':'physchem_index'}, inplace=True)
 
-# Mergen anhand von TRB_CDR3 + Epitope
+# Merge on TRB_CDR3 and Epitope
 df_test = pd.merge(df_test, physchem_map, on=["TRB_CDR3","Epitope"], how="left")
 
-# Prüfen, ob alle physchem_index vorhanden sind
+# Check for missing indices
 n_missing = df_test["physchem_index"].isna().sum()
 if n_missing > 0:
     raise ValueError(f"{n_missing} test-Einträge haben keinen physchem_index!")
 
-# === Embeddings laden (Lazy Loading) ===
+# === Load embeddings via lazy loading ===
 def load_h5_lazy(fp):
     return h5py.File(fp, 'r')
 
 tcr_embeddings     = load_h5_lazy(config['embeddings']['tcr_test'])
 epitope_embeddings = load_h5_lazy(config['embeddings']['epitope_test'])
 
-# === Dataset & DataLoader erstellen ===
+# === Create Dataset & DataLoader ===
 dataset = LazyTCR_Epitope_Descriptor_Dataset(
     df_test,
     tcr_embeddings,
@@ -116,7 +116,7 @@ dataset = LazyTCR_Epitope_Descriptor_Dataset(
 )
 loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=False)
 
-# === Modell instanziieren ===
+# === Initialize model ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = TCR_Epitope_Transformer(
@@ -133,7 +133,7 @@ model = TCR_Epitope_Transformer(
     classifier_hidden_dim=config.get("classifier_hidden_dim", 64)
 ).to(device)
 
-# === Modellgewichte laden ===
+# === Load model weights ===
 artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v5_reci_v2_overh_best_model:v1"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir      = model_artifact.download()
@@ -155,7 +155,7 @@ model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
 '''
 
-# === Evaluation auf dem Testset ===
+# === Run inference on the test set ===
 all_labels, all_outputs, all_preds = [], [], []
 
 with torch.no_grad():
@@ -179,7 +179,7 @@ with torch.no_grad():
         all_outputs.extend(probs.cpu().numpy())
         all_preds.extend(preds.cpu().numpy())
 
-# === Metriken berechnen ===
+# === Compute evaluation metrics ===
 all_labels = np.array(all_labels)
 all_outputs = np.array(all_outputs)
 all_preds = np.array(all_preds)
@@ -203,6 +203,7 @@ print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
 print(f"TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
+# === Log metrics to Weights & Biases ===
 wandb.log({
     "test_auc":       auc,
     "test_ap":        ap,
@@ -213,7 +214,7 @@ wandb.log({
     "test_recall":    recall
 })
 
-# === TPP1–TPP4 Auswertung ===
+# === TPP1–TPP4 Subset Evaluation ===
 if "task" in df_test.columns:
     all_tasks = df_test["task"].values
     for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
@@ -242,7 +243,7 @@ if "task" in df_test.columns:
             print(f"Precision:   {tpp_precision:.4f}")
             print(f"Recall:      {tpp_recall:.4f}")
 
-            # Logging zu WandB
+            # Log subset metrics to Weights & Biases
             log_dict = {
                 f"{tpp}_f1":        tpp_f1,
                 f"{tpp}_macro_f1":  tpp_macro_f1,
@@ -266,6 +267,7 @@ if "task" in df_test.columns:
                 )
             })
 
+            # Plot prediction confidence histogram
             plt.figure(figsize=(6, 4))
             plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
             plt.title(f"Prediction Score Distribution – {tpp}")

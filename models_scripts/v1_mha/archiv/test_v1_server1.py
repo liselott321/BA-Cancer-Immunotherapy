@@ -2,98 +2,106 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve
+from sklearn.metrics import roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score, average_precision_score, roc_curve, log_loss
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
-import yaml
-import sys
 import h5py
 import wandb
-from dotenv import load_dotenv
+import yaml
+import sys
+import seaborn as sns
+import io
+from sklearn.calibration import calibration_curve
+import torch.nn as nn
+import torch.optim as optim
 
-# Import custom modules
+# Pfade zur Modell- und Datendefinition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from models.morning_stars_v1.beta.v1_mha_1024 import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+
+#from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+from models.morning_stars_v1.beta.v1_mha_1024_only_res_flatten_wiBNpre_dropout import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import parse_args
 
-# Parse arguments
+# Argumente & Config laden
 args = parse_args()
-
-# Load Configurations
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
-# Paths
-test_path = args.test if args.test else config['data_paths']['test']
-model_path = args.model_path if args.model_path else config['model_path']
-# embeddings_config = config['embeddings']
+# Init wandb run
+run = wandb.init(
+    project="dataset-allele",
+    entity="ba_cancerimmunotherapy",
+    job_type="test_model",
+    name="Test_v1_dropout_best_ap_tpp1",
+    config=config
+)
+
+# Testdaten und Embedding-Pfade
+# 1. Lade das Dataset‐Artefakt
+dataset_art = run.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
+data_dir     = dataset_art.download()
+
+# 2. Baue den Pfad zur Test‐Split‐Datei
+test_file = os.path.join(data_dir, "allele", "test.tsv")
+
+# 3. Lese den Split ein
+test_data = pd.read_csv(test_file, sep="\t")
+
 tcr_test_path = args.tcr_test_embeddings if args.tcr_test_embeddings else config['embeddings']['tcr_test']
 epitope_test_path = args.epitope_test_embeddings if args.epitope_test_embeddings else config['embeddings']['epitope_test']
 
-# Load test data
-print(f"Loading test data from: {test_path}")
-test_data = pd.read_csv(test_path, sep='\t')
 
-
-# Logging setup
-PROJECT_NAME = "dataset-allele"
-ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "TEST_v1_mha_1024"
-experiment_name = f"Experiment - {MODEL_NAME}"
-run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
-run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
-
-
-# HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
-    """Lazy load HDF5 file and return a reference to the file."""
     return h5py.File(file_path, 'r')
 
-print('Loading embeddings...')
-print("tcr_test ", tcr_test_path)
+print('Lade Embeddings...')
 tcr_test_embeddings = load_h5_lazy(tcr_test_path)
-print("epi_test ", epitope_test_path)
 epitope_test_embeddings = load_h5_lazy(epitope_test_path)
 
-# Create datasets and dataloaders (lazy loading)
+# Dataset & Dataloader
 test_dataset = LazyTCR_Epitope_Dataset(test_data, tcr_test_embeddings, epitope_test_embeddings)
-
 test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
 
-# Initialize device
+# Modell aufsetzen
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-if device.type == "cuda":
-    print(f"GPU Name: {torch.cuda.get_device_name(0)}")
-
-# Initialize model
 model = TCR_Epitope_Transformer(
-    config['embed_dim'],
-    config['num_heads'],
-    config['num_layers'],
-    config['max_tcr_length'],
-    config['max_epitope_length']
+    embed_dim       = config['embed_dim'],
+    num_heads       = config['num_heads'],
+    num_layers      = config['num_layers'],
+    max_tcr_length  = config['max_tcr_length'],
+    max_epitope_length = config['max_epitope_length'],
+    attn_dropout    = config['attn_dropout'],
+    ffn_dropout     = config['ffn_dropout'],
+    res_dropout     = config['res_dropout'],
+    classifier_hidden_dim=config.get('classifier_hidden_dim', 64) #nur für v1_mha_1024_res
 ).to(device)
 
-# Load the trained model
-print(f"Loading model from: {model_path}")
-model.load_state_dict(torch.load(model_path))
-model.eval()
+# Modell von wandb laden
+print("Lade Modell von wandb...")
+api = wandb.Api()
+runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
+# Direktes Laden über bekannten Namen
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v1_hopefully_no_overfittingh_flattened_epoch8:v0" #anpassen, wenn andere version latest oder v12
+artifact = wandb.Api().artifact(artifact_name, type="model")
+artifact_dir = artifact.download()
+model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
 
-# Testing phase
-print("\nStarting testing phase...")
-all_labels = []
-all_outputs = []
-all_preds = []
+# Gewichte ins Modell laden
+model.load_state_dict(torch.load(model_file, map_location=device))
+model.eval()
+print("✅ Modell geladen:", artifact.name)
+
+
+# Testdurchlauf
+all_labels, all_outputs, all_preds = [], [], []
 
 with torch.no_grad():
     for tcr, epitope, label in tqdm(test_loader, desc="Testing"):
         tcr, epitope, label = tcr.to(device), epitope.to(device), label.to(device)
         output = model(tcr, epitope)
-
-        # Convert logits to probabilities and predictions
         probs = torch.sigmoid(output)
         preds = (probs > 0.5).float()
 
@@ -101,62 +109,108 @@ with torch.no_grad():
         all_outputs.extend(probs.cpu().numpy())
         all_preds.extend(preds.cpu().numpy())
 
-# Convert to NumPy arrays for metric calculations
+# Metriken
 all_labels = np.array(all_labels)
-all_preds = np.array(all_preds)
 all_outputs = np.array(all_outputs)
+all_preds = np.array(all_preds)
 
-# Metrics
 auc = roc_auc_score(all_labels, all_outputs)
-accuracy = (all_preds == all_labels).mean()
 ap = average_precision_score(all_labels, all_outputs)
 f1 = f1_score(all_labels, all_preds)
-
-# Confusion matrix components
-tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
-
+accuracy = (all_preds == all_labels).mean()
 precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
+tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
 
-# ROC Curve
-fpr, tpr, _ = roc_curve(all_labels, all_outputs)
-
-plt.figure()
-plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc:.2f})')
-plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('ROC Curve')
-plt.legend()
-
-
-# Speichern und in wandb loggen
-os.makedirs("results", exist_ok=True)
-roc_curve_path = f"results/roc_curve{MODEL_NAME}.png"
-plt.savefig(roc_curve_path)
-wandb.log({"roc_curve": wandb.Image(roc_curve_path)})
-plt.close()
-
+# Ergebnisse
+print("\nTestergebnisse:")
+print(f"AUC:       {auc:.4f}")
+print(f"AP:        {ap:.4f}")
+print(f"F1 Score:  {f1:.4f}")
+print(f"Accuracy:  {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall:    {recall:.4f}")
+print(f"TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
 wandb.log({
-"test_auc": auc,
-"test_ap": ap,
-"test_f1": f1,
-"test_accuracy": accuracy,
-"test_tp": tp,
-"test_tn": tn,
-"test_fp": fp,
-"test_fn": fn,
-"test_precision": precision,
-"test_recall": recall,
-"prediction_distribution": wandb.Histogram(all_outputs),
-"label_distribution": wandb.Histogram(all_labels),
-"test_confusion_matrix": wandb.plot.confusion_matrix(
-    y_true=all_labels,
-    preds=all_preds,
-    class_names=["Not Binding", "Binding"])
+    "test_auc": auc,
+    "test_ap": ap,
+    "test_f1": f1,
+    "test_accuracy": accuracy,
+    "test_precision": precision,
+    "test_recall": recall
 })
 
+# TPP1–TPP4 Auswertung
+if "task" in test_data.columns:
+    all_tasks = test_data["task"].values
+    for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
+        mask = all_tasks == tpp
+        if mask.sum() > 0:
+            labels = all_labels[mask]
+            outputs = all_outputs[mask]
+            preds = all_preds[mask]
 
-print(f"Test Results - AUC: {auc:.4f}, Accuracy: {accuracy:.4f}, AP: {ap:.4f}, F1: {f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
+            unique_classes = np.unique(labels)
+
+            # AUC/AP nur, wenn beide Klassen vorkommen
+            tpp_auc = roc_auc_score(labels, outputs) if len(unique_classes) == 2 else None
+            tpp_ap = average_precision_score(labels, outputs) if len(unique_classes) == 2 else None
+
+            tpp_f1 = f1_score(labels, preds, zero_division=0)
+            tpp_acc = (preds == labels).mean()
+            tpp_precision = precision_score(labels, preds, zero_division=0)
+            tpp_recall = recall_score(labels, preds, zero_division=0)
+
+            print(f"\n{tpp} ({mask.sum()} Beispiele)")
+            print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
+            print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
+            print(f"F1:   {tpp_f1:.4f}")
+            print(f"Acc:  {tpp_acc:.4f}")
+            print(f"Precision: {tpp_precision:.4f}")
+            print(f"Recall:    {tpp_recall:.4f}")
+
+            # Wandb-Logging
+            log_dict = {
+                f"{tpp}_f1": tpp_f1,
+                f"{tpp}_accuracy": tpp_acc,
+                f"{tpp}_precision": tpp_precision,
+                f"{tpp}_recall": tpp_recall,
+            }
+            if tpp_auc is not None:
+                log_dict[f"{tpp}_auc"] = tpp_auc
+            if tpp_ap is not None:
+                log_dict[f"{tpp}_ap"] = tpp_ap
+
+            wandb.log(log_dict)
+
+            # Confusion Matrix loggen
+            wandb.log({
+                f"{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
+                    y_true=labels.astype(int),
+                    preds=preds.astype(int),
+                    class_names=["Not Binding", "Binding"],
+                    title=f"Confusion Matrix – {tpp}"
+                )
+            })
+            # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+            plt.figure(figsize=(6, 4))
+            plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
+            plt.title(f"Prediction Score Distribution – {tpp}")
+            plt.xlabel("Predicted Probability")
+            plt.ylabel("Frequency")
+            plt.tight_layout()
+            
+            # Speicherpfad & Logging
+            plot_path = f"results/{tpp}_confidence_hist_test.png"
+            os.makedirs("results", exist_ok=True)
+            plt.savefig(plot_path)
+            wandb.log({f"{tpp}_prediction_distribution": wandb.Image(plot_path)})
+            plt.close()
+        else:
+            print(f"\nKeine Beispiele für {tpp}")
+else:
+    print("\nKeine 'task'-Spalte in Testdaten – TPP-Auswertung übersprungen.")
+
+wandb.finish()
