@@ -9,6 +9,7 @@ This repository implements and extends the work presented in our Bachelor thesis
 ## About this Project
 This project investigates transformer-based models for predicting the binding specificity between T-cell receptors (TCRs) and epitopes, a crucial task for personalized cancer immunotherapy. We systematically evaluate and develop multiple model architectures, starting from a basic transformer, and incrementally introduce genetic context information, physicochemical features, and reciprocal attention mechanisms to capture the complexity of TCR-epitope interactions.
 
+---
 ### Data Sources
 We compiled a comprehensive dataset from the following primary sources:
 
@@ -17,6 +18,7 @@ We compiled a comprehensive dataset from the following primary sources:
 - **[IEDB](https://www.iedb.org/):** Immune Epitope Database and Analysis Resource.
 - **[10X Genomics](https://www.10xgenomics.com/datasets):** High-throughput immune repertoire sequencing data.
 
+---
 
 ### Data Processing
 
@@ -51,8 +53,6 @@ To generate the PLE features, please run the following scripts in order, all loc
 
 **You must run these scripts sequentially before training any model version that uses PLE features.**
 
----
-
 #### Ready-to-Use Data
 
 If you want to **skip the data generation steps** and use preprocessed data directly, you can download all required datasets and embedding files from our SharePoint:
@@ -60,6 +60,8 @@ If you want to **skip the data generation steps** and use preprocessed data dire
 - [Download Preprocessed Data (SharePoint link)](https://zhaw-my.sharepoint.com/my?id=%2Fpersonal%2Fbogo%5Fzhaw%5Fch%2FDocuments%2FStudentProjects%2FImmunotherapy%2FBA)
 
 Just extract the files into the appropriate folders as described in the repository structure above. This allows you to start training and evaluation without running the data processing scripts or notebooks yourself.
+
+---
 
 ### Model Architectures
 
@@ -70,7 +72,9 @@ We developed and compared the following transformer-based model versions, each a
 - **V3:** Incorporates physicochemical properties of TCR and epitope sequences using periodic (sin/cos) embeddings.
 - **V4:** Combines sequence data, genetic context, and physicochemical features.
 - **V5:** Introduces reciprocal attention mechanisms (inspired by TSpred), genetic context, and physicochemical latent embeddings.
-- **V6:** Similar 
+- **V6:** Introduces reciprocal attention mechanisms (inspired by TSpred), genetic context, and periodic embeddings.
+
+---
 
 ### Repository Structure
 ```bash
@@ -84,6 +88,8 @@ We developed and compared the following transformer-based model versions, each a
 ├── visualizers/ # Scripts for visualization and analysis
 ```
 *You will need a data folder to store the data; see configs for how it should be structured.*
+
+---
 
 ## Prerequisites
 
@@ -141,6 +147,9 @@ In some cases pytorch needs to have [sentencepiece](https://pypi.org/project/sen
 ```
 pip install sentencepiece
 ```
+
+---
+
 ## Run Locally
 - Clone the project
 ```bash
@@ -159,6 +168,8 @@ pip install sentencepiece
   - The output is placed in the `./data` folder od `./data_10x` folder
   - The final split for beta paired datasets can be found under `./data/splitted_data/{precision}/ ` or `./data_10x/splitted_data/{precision}/ `
   - Run the notebook again with different precision to create all datasets
+
+---
 
 ## Train a Model
 There are six main model versions (v1 through v6), each with a corresponding training and testing script under `models_scripts/v1_mha/`. Before running any script, edit its YAML config (e.g. `configs/v1_basic.yaml`, `configs/v2_cf.yaml`, etc.) to set:
@@ -232,6 +243,8 @@ If you want to run a hyperparameter sweep for any version (v1–v6), make sure i
 hyperparameter_tuning_with_WnB: True
 ```
 Then start the same script via `nohup`. W&B will spin up multiple runs with different hyperparameter combinations defined in your sweep config (e.g. `configs/v3_pe_sweep.yaml`).
+
+---
 
 ## Additional Tips
 - **Monitor GPU usage**:  
