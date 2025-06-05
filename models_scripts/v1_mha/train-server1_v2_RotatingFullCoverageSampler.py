@@ -51,7 +51,7 @@ model_path = args.model_path if args.model_path else config['model_path']
 # Logging setup
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
-MODEL_NAME = "v2_newhyper_over"
+MODEL_NAME = "v2"
 experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
@@ -576,7 +576,7 @@ for epoch in range(epochs):
             break
 
     # --- Modell nach jeder Epoche speichern ---
-    model_save_dir = "results/trained_models/v2_newhyper_over/epochs"
+    model_save_dir = "results/trained_models/v2/epochs"
     os.makedirs(model_save_dir, exist_ok=True)
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
     torch.save(model.state_dict(), model_epoch_path)
@@ -586,7 +586,7 @@ for epoch in range(epochs):
 
 # Save best model -------------------------------------------------------------------------------
 if best_model_state:
-    os.makedirs("results/trained_models/v2_newhyper_over", exist_ok=True)
+    os.makedirs("results/trained_models/v2", exist_ok=True)
     torch.save(best_model_state, model_path)
     print("Best model saved with AP:", best_ap)
 

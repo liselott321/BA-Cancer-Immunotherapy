@@ -61,7 +61,6 @@ class AttentionBlock(nn.Module):
 class ReciprocalAttention(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout=0.1):
         super().__init__()
-<<<<<<< HEAD
         self.peptide_to_tcr = nn.MultiheadAttention(embed_dim, num_heads,
                                                    dropout=dropout,
                                                    batch_first=True)
@@ -95,23 +94,6 @@ class ReciprocalAttention(nn.Module):
         peptide_out = self.norm_peptide(peptide_emb + self.dropout(pep2tcr))
 
         # Rückgabe in der Reihenfolge (tcr_out, peptide_out)
-=======
-        self.peptide_to_tcr = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        self.tcr_to_peptide = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-
-        self.norm_peptide = nn.LayerNorm(embed_dim)
-        self.norm_tcr = nn.LayerNorm(embed_dim)
-
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, tcr_emb, peptide_emb, key_padding_mask_tcr=None, key_padding_mask_epi=None):
-        pep2tcr, _ = self.peptide_to_tcr(peptide_emb, tcr_emb, tcr_emb, key_padding_mask=key_padding_mask_tcr)
-        peptide_out = self.norm_peptide(peptide_emb + self.dropout(pep2tcr))
-
-        tcr2pep, _ = self.tcr_to_peptide(tcr_emb, peptide_emb, peptide_emb, key_padding_mask=key_padding_mask_epi)
-        tcr_out = self.norm_tcr(tcr_emb + self.dropout(tcr2pep))
-
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
         return tcr_out, peptide_out
 
 class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
@@ -160,13 +142,10 @@ class TCR_Epitope_Transformer(nn.Module):
         self.tcr_positional_encoding = nn.Parameter(torch.randn(1, max_tcr_length, embed_dim))
         self.epitope_positional_encoding = nn.Parameter(torch.randn(1, max_epitope_length, embed_dim))
 
-<<<<<<< HEAD
         self.transformer_layers = nn.ModuleList([
             AttentionBlock(embed_dim, num_heads, dropout) for _ in range(num_layers)
         ])
         
-=======
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
         self.rec_attn = ReciprocalAttention(embed_dim, num_heads, dropout)
 
         seq_dim  = embed_dim * (max_tcr_length + max_epitope_length)
@@ -189,7 +168,6 @@ class TCR_Epitope_Transformer(nn.Module):
         # Add positional encoding
         tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
-<<<<<<< HEAD
 
         # **Self‐Attention** auf jede Sequenz
         for layer in self.transformer_layers:
@@ -200,14 +178,7 @@ class TCR_Epitope_Transformer(nn.Module):
         tcr_out, epitope_out = self.rec_attn(
             tcr_emb, epitope_emb,
             key_padding_mask_tcr=tcr_mask,
-            key_padding_mask_epi=epi_mask
-=======
-    
-        tcr_out, epitope_out = self.rec_attn(
-            tcr_emb, epitope_emb,
-            key_padding_mask_tcr=tcr_mask,
             key_padding_mask_epi=epitope_mask
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
         )
         combined = torch.cat([tcr_out, epitope_out], dim=1)
         seq_feat = combined.view(combined.size(0), -1)

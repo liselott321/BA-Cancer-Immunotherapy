@@ -1,5 +1,5 @@
 epochs: 20
-batch_size: 256
+batch_size: 128
 learning_rate: 0.0005
 embed_dim: 128
 dropout: 0.2
@@ -7,7 +7,7 @@ num_heads: 8
 num_layers: 2
 max_tcr_length: 43
 max_epitope_length: 43
-model_path: "results/trained_models/v7_auf_v3undv2_new_hyper_over.pth"
+model_path: "results/trained_models/v7aufv3_new_hyper.pth"
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"
   val: "../../data/splitted_datasets/allele/beta/validation.tsv"

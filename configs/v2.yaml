@@ -3,15 +3,11 @@ batch_size: 128
 learning_rate: 0.0005
 embed_dim: 128
 dropout: 0.2
-num_heads: 16
+num_heads: 8
 num_layers: 4
 max_tcr_length: 43
 max_epitope_length: 43
-<<<<<<< HEAD
-model_path: "results/trained_models/v2_newhyper_over/v2_newhyper_over.pth"
-=======
-model_path: "results/trained_models/v1_mha/v2.pth"
->>>>>>> 38f70e2736e35907775f92b6bbf9a5ae16bc1c32
+model_path: "results/trained_models/v2/v2.pth"
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"
   val: "../../data/splitted_datasets/allele/beta/validation.tsv"
