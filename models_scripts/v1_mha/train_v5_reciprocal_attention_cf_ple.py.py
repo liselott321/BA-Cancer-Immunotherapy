@@ -18,16 +18,16 @@ import random
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.calibration import calibration_curve
 
+# === Local Imports ===
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-# for use with subsets
-from models.morning_stars_v1.beta.v5_ple_offline_ReciprocalAttention_v2 import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
+from models.morning_stars_v1.beta.v5_reciprocal_attention_cf_ple import TCR_Epitope_Transformer, LazyTCR_Epitope_Descriptor_Dataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
 
 args = parse_args()
 
-# Load Configurations
+# === Load configuration ===
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
@@ -36,8 +36,6 @@ batch_size = args.batch_size if args.batch_size else config['batch_size']
 print(f'Batch size: {batch_size}')
 learning_rate = args.learning_rate if args.learning_rate else config['learning_rate']
 print(f'Learning rate: {learning_rate}')
-
-# print(epochs,'\n', batch_size,'\n', learning_rate)
 
 train_path = args.train if args.train else config['data_paths']['train']
 print(f"train_path: {train_path}")
@@ -55,11 +53,10 @@ ple_h5 = h5py.File(PLE_H5, 'r')
 ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
 ple_epi_tensor = torch.tensor(ple_h5["epi_ple"][:], dtype=torch.float32)
 
-
 # path to save best model
 model_path = args.model_path if args.model_path else config['model_path']
 
-# Logging setup
+# === Initialize Weights & Biases ===
 PROJECT_NAME = "dataset-allele"
 ENTITY_NAME = "ba_cancerimmunotherapy"
 MODEL_NAME = "v5_reci_v2_over_new"
@@ -67,7 +64,7 @@ experiment_name = f"Experiment - {MODEL_NAME}"
 run_name = f"Run_{os.path.basename(model_path).replace('.pt', '')}"
 run = wandb.init(project=PROJECT_NAME, job_type=f"{experiment_name}", entity="ba_cancerimmunotherapy", name=run_name, config=config)
 
-# Logge Hyperparameter explizit
+# Log Hyperparameter
 wandb.config.update({
     "model_name": MODEL_NAME,
     "embed_dim": config["embed_dim"],
@@ -75,20 +72,13 @@ wandb.config.update({
     "max_epitope_length": config["max_epitope_length"],
 })
 
-# # embeddings
-# tcr_embeddings_path = args.tcr_embeddings if args.tcr_embeddings else config['embeddings']['tcr']
-# epitope_embeddings_path = args.epitope_embeddings if args.epitope_embeddings else config['embeddings']['epitope']
-
-# Embeddings paths from config/args
+# === Load Embeddings paths from config/args ===
 tcr_train_path = args.tcr_train_embeddings if args.tcr_train_embeddings else config['embeddings']['tcr_train']
 epitope_train_path = args.epitope_train_embeddings if args.epitope_train_embeddings else config['embeddings']['epitope_train']
 tcr_valid_path = args.tcr_valid_embeddings if args.tcr_valid_embeddings else config['embeddings']['tcr_valid']
 epitope_valid_path = args.epitope_valid_embeddings if args.epitope_valid_embeddings else config['embeddings']['epitope_valid']
 
-# Load Data -------------------------------------------------------
-#train_data = pd.read_csv(train_path, sep='\t')
-#val_data = pd.read_csv(val_path, sep='\t')
-
+# === Load Data ===
 dataset_name = f"beta_allele"
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download(f"./WnB_Experiments_Datasets/{dataset_name}")
@@ -99,18 +89,18 @@ val_file_path = f"{data_dir}/allele/validation.tsv"
 train_data = pd.read_csv(train_file_path, sep="\t")
 val_data = pd.read_csv(val_file_path, sep="\t")
 
-# (falls Du noch eine Mapping-Tabelle brauchst, lade sie hier:)
+# === Load physicochemical latent embeddings (PLE) ===
 physchem_map = pd.read_csv(config['embeddings']['physchem_map'], sep='\t')
 physchem_map.rename(columns={'idx':'physchem_index'}, inplace=True)
 train_data = pd.merge(train_data, physchem_map, on=['TRB_CDR3','Epitope'], how='left')
 val_data   = pd.merge(val_data,   physchem_map, on=["TRB_CDR3","Epitope"], how="left")
 
-# (optional) prüfen, ob irgendwo physchem_index fehlt
+
 n_missing = train_data["physchem_index"].isna().sum()
 if n_missing>0:
     raise ValueError(f"{n_missing} Einträge ohne physchem_index!")
 
-# Mappings erstellen
+# === Create feature-to-index mappings based on the training set ===
 trbv_dict = {v: i for i, v in enumerate(train_data["TRBV"].unique())}
 trbj_dict = {v: i for i, v in enumerate(train_data["TRBJ"].unique())}
 mhc_dict  = {v: i for i, v in enumerate(train_data["MHC"].unique())}
@@ -124,7 +114,6 @@ for df in [train_data, val_data]:
     df["TRBJ_Index"] = df["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
     df["MHC_Index"]  = df["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
 
-# Vokabulargrößen bestimmen
 trbv_vocab_size = UNKNOWN_TRBV_IDX + 1
 trbj_vocab_size = UNKNOWN_TRBJ_IDX + 1
 mhc_vocab_size  = UNKNOWN_MHC_IDX + 1
@@ -133,12 +122,11 @@ print(trbv_vocab_size)
 print(trbj_vocab_size)
 print(mhc_vocab_size)
 
-# Load Embeddings -------------------------------------------------------
+# === Load Embeddings ===
 # HDF5 Lazy Loading for embeddings
 def load_h5_lazy(file_path):
     """Lazy load HDF5 file and return a reference to the file."""
     return h5py.File(file_path, 'r')
-
 
 print('Loading embeddings...')
 print("tcr_train ", tcr_train_path)
@@ -150,16 +138,15 @@ tcr_valid_embeddings = load_h5_lazy(tcr_valid_path)
 print("epi_valid ", epitope_valid_path)
 epitope_valid_embeddings = load_h5_lazy(epitope_valid_path)
 
-
-# ------------------------------------------------------------------
-# Create datasets and dataloaders (lazy loading)
+# === Create Dataset & DataLoader ===
 train_dataset = LazyTCR_Epitope_Descriptor_Dataset(train_data, tcr_train_embeddings, epitope_train_embeddings, ple_tcr_tensor, ple_epi_tensor, trbv_dict, trbj_dict, mhc_dict)
 val_dataset = LazyTCR_Epitope_Descriptor_Dataset(val_data, tcr_valid_embeddings, epitope_valid_embeddings, ple_tcr_tensor, ple_epi_tensor, trbv_dict, trbj_dict, mhc_dict)
 
-# 3) ple_dim aus dem HDF5 auslesen
+# ple_dim
 ple_dim = ple_tcr_tensor.shape[1]
 print(f"PLE Dim: {ple_dim}")
 
+# === Oversampling ===
 class OversampledFullDataset:
     def __init__(self, dataset, labels):
         self.dataset = dataset
@@ -190,12 +177,13 @@ class OversampledFullDataset:
 num_pos = len(train_data[train_data["Binding"] == 1])
 num_neg = len(train_data[train_data["Binding"] == 0])
 
-# Data loaders
+# === Data loaders ===
 train_labels = train_data['Binding'].values
 balanced_generator = OversampledFullDataset(train_dataset, train_labels)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 '''
+# === Undersampling with chunks ===
 class RotatingFullCoverageSampler:
     def __init__(self, dataset, labels, batch_size=32):
         self.dataset = dataset
@@ -247,7 +235,7 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_w
 '''
 
 
-# Initialize Model
+# === Initialize model ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 if device.type == "cuda":
@@ -269,13 +257,13 @@ model = TCR_Epitope_Transformer(
 
 wandb.watch(model, log="all", log_freq=100)
 
-# Loss
+# === Loss Function ===
 pos_count = (train_labels == 1).sum()
 neg_count = (train_labels == 0).sum()
 pos_weight = torch.tensor([neg_count / pos_count]).to(device)
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-# Automatisch geladene Sweep-Konfiguration in lokale Variablen holen
+# === Hyperparameter Sweep Settings ===
 learning_rate = args.learning_rate if args.learning_rate else wandb.config.learning_rate
 batch_size = args.batch_size if args.batch_size else wandb.config.batch_size
 optimizer_name = args.optimizer or wandb.config.get("optimizer", config.get("optimizer", "adam"))
@@ -290,23 +278,25 @@ elif optimizer_name == "sgd":
 else:
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=1, verbose=True)
-    
+
+# === Training & Validation Initialization ===
 best_ap = 0.0
 best_model_state = None
 early_stop_counter = 0
-#min_epochs = required_epochs 
 patience = 3
 global_step = 0
 
-# Training Loop ---------------------------------------------------------------
+# === Training Loop ===
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
+    # Create a new balanced dataloader for this epoch
     train_loader = balanced_generator.get_loader()
     train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Training]", leave=False)
 
     for tcr, epitope, tcr_ple, epi_ple, trbv, trbj, mhc, label in train_loader_tqdm:
+        # Move data to device
         tcr, epitope, tcr_ple, epi_ple, trbv, trbj, mhc, label = (
             tcr.to(device),
             epitope.to(device),
@@ -329,7 +319,7 @@ for epoch in range(epochs):
 
         train_loader_tqdm.set_postfix(loss=epoch_loss / (train_loader_tqdm.n + 1))
 
-    # Validation --------------------------------------------------------------------------------------------------------------
+    # === Validation Loop ===
     model.eval()
     all_labels = []
     all_outputs = []
@@ -340,6 +330,7 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         for tcr, epitope, tcr_ple, epi_ple, trbv, trbj, mhc, label in val_loader_tqdm:
+            # Move validation data to device
             tcr, epitope, tcr_ple, epi_ple, trbv, trbj, mhc, label = (
             tcr.to(device),
             epitope.to(device),
@@ -362,8 +353,8 @@ for epoch in range(epochs):
             all_outputs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
 
+    # Determine best threshold based on F1 score
     precision_curve, recall_curve, thresholds = precision_recall_curve(all_labels, all_outputs)
-    # F1 Score berechnen für alle Thresholds
     f1_scores = 2 * (precision_curve * recall_curve) / (precision_curve + recall_curve + 1e-8)
     best_threshold = thresholds[np.argmax(f1_scores)]
     best_f1 = np.max(f1_scores)
@@ -371,15 +362,15 @@ for epoch in range(epochs):
     print(f"Best threshold (by F1): {best_threshold:.4f} with F1: {best_f1:.4f}")
     wandb.log({"best_threshold": best_threshold, "best_f1_score_from_curve": best_f1}, step=global_step)
     
-    # Jetzt F1, Accuracy, Precision, Recall etc. mit best_threshold berechnen
+    # Apply best threshold to predictions
     preds = (all_outputs > best_threshold).astype(float)
     
-    # Convert to NumPy arrays for metric calculations
+    # Convert all values to numpy arrays for metric calculations
     all_labels = np.array(all_labels)
     all_preds = np.array(preds)
     all_outputs = np.array(all_outputs)
 
-    # Metrics
+    # Compute standard metrics
     auc = roc_auc_score(all_labels, all_outputs)
     ap = average_precision_score(all_labels, all_outputs)
     accuracy = (all_preds == all_labels).mean()
@@ -388,11 +379,12 @@ for epoch in range(epochs):
     scheduler.step(auc)
     wandb.log({"learning_rate": optimizer.param_groups[0]["lr"]}, step=global_step)
 
-    # Confusion matrix components
+    # Confusion matrix
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
     print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss/len(train_loader):.4f}, Val Loss: {val_loss_total/len(val_loader):.4f}, Val AUC: {auc:.4f}, Val AP: {ap:.4f}, Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f},  Val Macro F1: {macro_f1:.4f}, TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
+    # Additional metrics
     precision = precision_score(all_labels, all_preds)
     recall = recall_score(all_labels, all_preds)
 
@@ -407,7 +399,7 @@ for epoch in range(epochs):
     plt.title('ROC Curve')
     plt.legend()
     
-    # Speichern und in wandb loggen
+    # Log general validation metrics to wandb
     os.makedirs("results", exist_ok=True)
     roc_curve_path = "results/roc_curve.png"
     plt.savefig(roc_curve_path)
@@ -437,7 +429,7 @@ for epoch in range(epochs):
         class_names=["Not Binding", "Binding"])
     }, step=global_step, commit=False)
 
-    # ===== TPP1–TPP4 Auswertung im Validierungsset =====
+    # ===== TPP1–TPP4 Validation Metric =====
     if "task" in val_data.columns:
         all_tasks = val_data["task"].values
 
@@ -521,7 +513,7 @@ for epoch in range(epochs):
                         title=f"Confusion Matrix – {tpp}"
                     )
                 }, step=global_step, commit=False)
-                # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+                # Plot prediction confidence histogram
                 plt.figure(figsize=(6, 4))
                 plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
                 plt.title(f"Prediction Score Distribution – {tpp}")
@@ -529,21 +521,19 @@ for epoch in range(epochs):
                 plt.ylabel("Frequency")
                 plt.tight_layout()
                 
-                # Speicherpfad & Logging
+                # Save and Log
                 plot_path = f"results/{tpp}_confidence_hist_epoch{epoch+1}.png"
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
-                # Temperature Scaling: Nur auf Logits anwenden, nicht auf Sigmoid-Ausgaben
+                # Temperature Scaling
                 raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
                 temperature = fit_temperature(raw_logits, labels)
                 scaled_logits = raw_logits / temperature
                 scaled_probs = 1 / (1 + np.exp(-scaled_logits))  # Sigmoid again
                 
-                # Jetzt z. B. neu evaluieren mit scaled_probs
+                # Scaled Metrics
                 scaled_preds = (scaled_probs > 0.5).astype(int)
-                
-                # Neue Metriken mit skalierter Ausgabe
                 scaled_f1 = f1_score(labels, scaled_preds, zero_division=0)
                 scaled_acc = accuracy_score(labels, scaled_preds)
                 scaled_prec = precision_score(labels, scaled_preds, zero_division=0)
@@ -560,7 +550,7 @@ for epoch in range(epochs):
                     f"val_{tpp}_precision_scaled": scaled_prec,
                     f"val_{tpp}_recall_scaled": scaled_rec
                 }, step=global_step, commit=False)
-                # Reliability Diagram (nach dem Scaling!)
+                # Reliability Diagram
                 prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
                 
                 plt.figure(figsize=(6, 4))
@@ -572,7 +562,7 @@ for epoch in range(epochs):
                 plt.legend()
                 plt.tight_layout()
                 
-                # Speicherpfad & Logging
+                # Save and Logg
                 plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
                 plt.savefig(plot_path_calib)
                 wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
@@ -583,7 +573,7 @@ for epoch in range(epochs):
         print("\n Keine Spalte 'task' in val_data – TPP-Auswertung übersprungen.")
 
 
-    # --- Modell nach jeder Epoche speichern ---
+    # Save Modell after every Epoch
     model_save_dir = "results/trained_models/v5_reci_v2_over/epochs"
     os.makedirs(model_save_dir, exist_ok=True)
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
