@@ -105,32 +105,86 @@ pip install sentencepiece
   - The final split for beta paired datasets can be found under `./data/splitted_data/{precision}/ ` or `./data_10x/splitted_data/{precision}/ `
   - Run the notebook again with different precision to create all datasets
 
-### Train a Model
-- There are four scripts to do training. Each can be run with gene or allele precision (make sure datapipeline has been run with the corresponding precision).
-  - `./models/beta_physico/train_beta_physico.py`
-  - `./models/beta_vanilla/train_beta_vanilla.py`
-  - `./models/physico/train_physico.py`
-  - `./models/vanilla/train_vanilla.py`
-  - `./models/random_forest_classifiers/train_valid_test_random_forest_classifier_with_physico.py`
-  - `./models/paired_vanilla_physico/train_vanilla`
+## Train a Model
+There are six main model versions (v1 through v6), each with a corresponding training and testing script under `models_scripts/v1_mha/`. Before running any script, edit its YAML config (e.g. `configs/v1_basic.yaml`, `configs/v2_cf.yaml`, etc.) to set:
+- Paths to `train.tsv`, `validation.tsv`, `test.tsv`
+- Embedding file locations (HDF5)
+- Hyperparameters (`embed_dim`, `num_heads`, `learning_rate`, etc.)
 
-- Open the train skript of your choice and head to the top of the main function.
-  - set value for the variable `precision`
-  - If you had to change to an absolute path in the data pipeline:
-    - change `embed_base_dir` to an absolute path
-    - change `physico_base_dir` to an absolute path if you train either `train_beta_physico.py` or `train_physico.py`
-  - If you want to do hyperparameter tuning with Weights & Biases sweeps
-    - change `hyperparameter_tuning_with_WnB` to True
-  - Otherwise set the specific hyperparameter values in the train script:
-  
-    ```
-    # ! here random hyperparameter values set !
-    hyperparameters["optimizer"] = "sgd"
-    hyperparameters["learning_rate"] = 5e-3
-    hyperparameters["weight_decay"] = 0.075
-    hyperparameters["dropout_attention"] = 0.1
-    hyperparameters["dropout_linear"] = 0.45
-    ```
-    
-  - After training one can see the checkpoint file (`.ckpt`) in the directory `checkpoints` in a directory named like the Weights & Biases run. The checkoint is saved at the point where the AP_Val metric was at its highest. Furthermore, the file with the `.pth` extension is the final model. These files are in the same directory as the training script.
+### Available Training Scripts
+- `models_scripts/v1_mha/train_v1_basic.py`
+- `models_scripts/v1_mha/train_v2_cf.py`
+- `models_scripts/v1_mha/train_v3_pe.py`
+- `models_scripts/v1_mha/train_v4_CE_PE.py`
+- `models_scripts/v1_mha/train_v5_reciprocal_attention_cf_ple.py`
+- `models_scripts/v1_mha/train_v6_reciprocal_attention_cf_pe.py`
 
+### Available Testing Scripts
+- `models_scripts/v1_mha/test_v1_basic.py`
+- `models_scripts/v1_mha/test_v2_cf.py`
+- `models_scripts/v1_mha/test_v3_pe.py`
+- `models_scripts/v1_mha/test_v4_CE_PE.py`
+- `models_scripts/v1_mha/test_v5_reciprocal_attention_cf_ple.py`
+- `models_scripts/v1_mha/test_v6_reciprocal_attention_cf_pe.py`
+
+Each “vX” training script expects you to pass `--configs_path configs/vX_<name>.yaml`. The matching test script (e.g. `test_vX_<name>.py`) will load that trained model and run evaluation on the test set.
+
+### How to Start a Training Run
+1. **Change to the project root**:
+```bash
+cd ~/BA-Cancer-Immunotherapy
+```
+2. **Launch training via `nohup`** (recommended for long-running jobs). For example, to start model v1:
+```bash
+nohup python models_scripts/v1_mha/train_v1_basic.py   --configs_path configs/v1_basic.yaml > run_v1.log 2>&1 &
+```
+- All stdout/stderr is redirected into `run_v1.log`.
+- To monitor progress:
+```bash
+tail -f run_v1.log
+```
+3. **Always supply your config file** with `--configs_path`, so you can tweak file locations or hyperparameters without editing the script itself.
+4. When training finishes (or if you kill the process), check:
+- The W&B run directory for a `.ckpt` (best validation AP) under `results/trained_models/.../epochs/`.
+- A final `.pth` (or `.pt`) model file in the same directory, representing the last epoch.
+
+### How to Run a Test Script
+Once you have a saved model checkpoint (e.g. `model_epoch_*.pt` or a W&B artifact), you can run the matching test script. For example, to test v1:
+```bash
+python models_scripts/v1_mha/test_v1_basic.py   --configs_path configs/v1_basic.yaml   --model_path results/trained_models/v1/model_epoch_best.pt
+```
+- Adjust `--configs_path` and `--model_path` to point to your YAML file and the checkpoint you want to evaluate.
+- The test script will load embeddings, the model weights, and produce metrics (AUC, F1, confusion matrix, etc.) that are logged to W&B and saved under `results/`.
+
+#### Example: Running v5 Training & Testing
+```bash
+# Train v5
+nohup python models_scripts/v1_mha/train_v5_reciprocal_attention_cf_ple.py   --configs_path configs/v5_reciprocal_attention_cf_ple.yaml > run_v5.log 2>&1 &
+
+# Monitor training
+tail -f run_v5.log
+
+# After training completes, suppose best checkpoint is:
+# results/trained_models/v5_reciprocal_attention_cf_ple/epochs/model_epoch_12.pt
+
+# Run the v5 test
+python models_scripts/v1_mha/test_v5_reciprocal_attention_cf_ple.py   --configs_path configs/v5_reciprocal_attention_cf_ple.yaml   --model_path results/trained_models/v5_reciprocal_attention_cf_ple/epochs/model_epoch_12.pt
+```
+
+#### Hyperparameter Sweeps with W&B
+If you want to run a hyperparameter sweep for any version (v1–v6), make sure in your YAML:
+```yaml
+hyperparameter_tuning_with_WnB: True
+```
+Then start the same script via `nohup`. W&B will spin up multiple runs with different hyperparameter combinations defined in your sweep config (e.g. `configs/v3_pe_sweep.yaml`).
+
+## Additional Tips
+- **Monitor GPU usage**:  
+```bash
+nvidia-smi
+```
+to watch VRAM consumption and GPU load.
+- **Check results directory**:  
+  - `results/trained_models/` contains all epoch‐by‐epoch checkpoints.  
+  - `results/roc_curve.png`, confusion matrices, and other figures are saved automatically and logged to W&B.
+- **Early stopping** is implemented in each training script. If validation AP does not improve for `patience` consecutive epochs, training halts automatically.
