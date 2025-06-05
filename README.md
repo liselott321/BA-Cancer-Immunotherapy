@@ -1,4 +1,5 @@
 # BA-Cancer-Immunotherapy
+This repository implements and extends the work presented in our Bachelor thesis at Zurich University of Applied Sciences, providing all code, data pipelines, and reproducible experiments.
 
 ## Authors
 - [@liselott321](https://github.com/liselott321)
@@ -7,9 +8,6 @@
 
 ## About this Project
 This project investigates transformer-based models for predicting the binding specificity between T-cell receptors (TCRs) and epitopes, a crucial task for personalized cancer immunotherapy. We systematically evaluate and develop multiple model architectures, starting from a basic transformer, and incrementally introduce genetic context information, physicochemical features, and reciprocal attention mechanisms to capture the complexity of TCR-epitope interactions.
-
-This repository implements and extends the work presented in our Bachelor thesis at Zurich University of Applied Sciences, providing all code, data pipelines, and reproducible experiments.
-
 
 ### Data Sources
 We compiled a comprehensive dataset from the following primary sources:
