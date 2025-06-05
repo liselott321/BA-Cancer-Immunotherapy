@@ -7,7 +7,7 @@ num_heads: 4
 num_layers: 1
 max_tcr_length: 43
 max_epitope_length: 43
-model_path: "results/trained_models/v5_new/v5_over.pth"
+model_path: "results/trained_models/v5_reci_v2_over/v5_reci_v2_over.pth"
 data_paths:
   train: "../../data/splitted_datasets/allele/beta/train.tsv"
   val: "../../data/splitted_datasets/allele/beta/validation.tsv"
