@@ -6,20 +6,24 @@
 - [@oscario-20](https://github.com/oscario-20)
 
 ## About this Project
-This project builds upon the foundational work of a Bachelor's thesis from the [BA_ZHAW repository](https://github.com/vegger/BA_ZHAW) and our last project [PA-Cancer-Immunotherapy-Transformer](https://github.com/tomickristina/PA-Cancer-Immunotherapy-Transformer). 
-
-
-## Credits
-This project builds upon the work of the [BA_ZHAW project](https://github.com/vegger/BA_ZHAW). Portions of the README, data scripts, and model architectures are adapted from that repository.
-
+- satz fehlt jetzt noch
+- 
 ### Data Sources
-The primary sources of data include [VDJdb](https://vdjdb.cdr3.net/), [McPAS-TCR](http://friedmanlab.weizmann.ac.il/McPAS-TCR/), and [IEDB](https://www.iedb.org/), which provide sequences and true postitive binding data for TCRs and pMHCs. Additionally we added [10X](https://www.10xgenomics.com/datasets?query=%22A%20new%20way%20of%20exploring%20immunity%E2%80%93linking%20highly%20multiplexed%20antigen%20recognition%20to%20immune%20repertoire%20and%20phenotype%22&page=1&configure%5BhitsPerPage%5D=50&configure%5BmaxValu).
+The primary data sources include:
+- [VDJdb](https://vdjdb.cdr3.net/)
+- [McPAS-TCR](http://friedmanlab.weizmann.ac.il/McPAS-TCR/)
+- [IEDB](https://www.iedb.org/)
+- [10X Genomics](https://www.10xgenomics.com/datasets?query=%22A%20new%20way%20of%20exploring%20immunity%E2%80%93linking%20highly%20multiplexed%20antigen%20recognition%20to%20immune%20repertoire%20and%20phenotype%22&page=1&configure%5BhitsPerPage%5D=50&configure%5BmaxValu)
 
-### Data Processing
-The data is standardized, harmonized, and split into training, validation, and test sets. Negative samples are synthetically generated to ensure a balanced dataset on branch ba but on branch 10X we used the new 10X dataset. The [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section explains how you can run the data pipeline locally.
+We harmonize TCR and pMHC sequences (positive binders) and generate synthetic negative examples. On the **ba** branch, we apply balanced negative sampling; on the **10X** branch, we use the raw 10X dataset.
+
+### Data Processing @ Arina stimmt das noch?
+All raw files are standardized, harmonized, and split into train/validation/test sets. Negative samples are generated synthetically (see “Data Pipeline” section).  
+For details, see the [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section.
 
 ### Model Architectures
-Various deep learning architectures are explored, including attention-based models. The [Model Training](#train-a-model) section explains how the training works in this project. For 10X Model training go on branch 10X and open there Model Training.
+We explore multiple deep-learning architectures, including:
+v1-v6
 
 ### Repository Structure
 `data/`: This will be used to store data locally\
@@ -27,22 +31,29 @@ Various deep learning architectures are explored, including attention-based mode
 `models/`: Includes different model architectures and training scripts\
 
 ## Prerequisites
-The following requirements must be met in order to work with this project.
 
 ### Hardware
-Make sure you have a proper GPU and CUDA (version 12.1) installed. Other CUDA versions may work too but the [PyTorch](https://pytorch.org/get-started/locally/) installation can lead to problems. The NVIDIA GeForce GTX 1650 for example is not sufficient and leads to 'CUDA out of memory' issues. 
+- A CUDA-compatible GPU is **strongly recommended** (e.g., NVIDIA RTX series).  
+- CUDA 12.1 is tested; other CUDA versions may work but check your PyTorch installation docs.  
+- Example: A GTX 1650 often runs out of memory on larger TCR–Epitope batches.
 
-### Weights and Biases account
-The [Weights and Biases](https://wandb.ai/site) account is used as MLOps Plattform to store datasets and do some model tuning.
+### Weights & Biases (W&B)
+We use [Weights & Biases](https://wandb.ai/site) to:
+- Store datasets (artifacts)
+- Track hyperparameter sweeps
+- Log metrics, confusion matrices, and plots
 
+You’ll need a free W&B account.
 
 ### Conda Environment
-We recommend to have Anaconda installed which provides package, dependency, and environment management for any language. To import the conda environment, execute the following command in the root folder of this project and activate it.
-The name of the environment should be preserved and is called BA_ZHAW.
+
+We recommend using Anaconda/Miniconda for package, dependency, and environment management. From the root of this project, create and activate the environment:
+
 ```bash
 conda env create -n BA_ZHAW --file ENV.yml
 conda activate BA_ZHAW
 ```
+
 Install the necessary pip packages.
 ```bash
 pip install tidytcells
