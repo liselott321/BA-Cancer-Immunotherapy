@@ -20,7 +20,7 @@ import torch.optim as optim
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 #from models.morning_stars_v1.beta.v1_mha_1024_res_flatten import TCR_Epitope_Transformer, LazyTCR_Epitope_Dataset
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
+from models.morning_stars_v1.beta.v4_CF_PE_all_features_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 # from models.morning_stars_v1.beta.v6_1024_all_features_pe_doubleCross import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset #, BidirectionalCrossAttention
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
@@ -141,7 +141,7 @@ runs = api.runs("ba_cancerimmunotherapy/dataset-allele")
 # ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_fullyRot_wMacrof1h_epoch_1:v0
 # ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_normDrop_epoch_7:v0
 # ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_last_epoch_1:v0
-artifact_name = f"ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_oversample_last_epoch_{epoch_model}:v0" #anpassen, wenn andere version 
+artifact_name = f"ba_cancerimmunotherapy/dataset-allele/Run_v6_sameAtt_fullyRot_wMacrof1h_epoch_{epoch_model}:v0" #anpassen, wenn andere version 
 artifact = wandb.Api().artifact(artifact_name, type="model")
 artifact_dir = artifact.download()
 model_file = os.path.join(artifact_dir, os.listdir(artifact_dir)[0])
@@ -293,21 +293,5 @@ wandb.log({
         title="Confusion Matrix – General"
     )
 })
-
-# # Optional: Plot and log prediction distribution overall
-# plt.figure(figsize=(6, 4))
-# plt.hist(all_outputs, bins=50, color='lightcoral', edgecolor='black')
-# plt.title("Prediction Score Distribution – General")
-# plt.xlabel("Predicted Probability")
-# plt.ylabel("Frequency")
-# plt.tight_layout()
-
-# general_plot_path = "results/General_confidence_hist_test.png"
-# os.makedirs("results", exist_ok=True)
-# plt.savefig(general_plot_path)
-# wandb.log({"General_prediction_distribution": wandb.Image(general_plot_path)})
-# plt.close()
-
-
 
 wandb.finish()
