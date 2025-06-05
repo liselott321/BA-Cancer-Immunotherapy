@@ -23,7 +23,7 @@ run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
     job_type="test_model",
-    name="Test_Run_v7aufv3undv2",
+    name="Test_Run_v7aufv3undv2_rerun",
     config=config
 )
 
@@ -32,10 +32,24 @@ artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele
 data_dir = artifact.download("./WnB_Testdata")
 
 test_data = pd.read_csv(os.path.join(data_dir, "allele/test.tsv"), sep='\t')
+print("Testdaten Zeilen vor Merge:", len(test_data))
 physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
+
+# Direkt nach dem Laden des physchem_map:
+physchem_map = physchem_map.drop_duplicates(subset=["TRB_CDR3", "Epitope"])
+print("Nach drop_duplicates:", len(physchem_map))
+dups = physchem_map.duplicated(subset=["TRB_CDR3", "Epitope"], keep=False)
+print("Verbleibende Duplikate:", dups.sum())
+
 test_data = pd.merge(test_data, physchem_map, on=["TRB_CDR3", "Epitope"], how="left")
+print("Testdaten Zeilen nach Merge:", len(test_data))
 data_dir_train = artifact.download("./WnB_TrainData")
 train_df = pd.read_csv(os.path.join(data_dir_train, "allele/train.tsv"), sep='\t')
+
+dups = physchem_map.duplicated(subset=["TRB_CDR3", "Epitope"], keep=False)
+print(physchem_map[dups])
+print("Anzahl Duplikate:", dups.sum())
+print("NaNs nach Merge:", test_data.isna().sum())
 
 # Erzeuge Dicts von Training
 trbv_dict = {v: i for i, v in enumerate(train_df["TRBV"].unique())}
@@ -49,6 +63,8 @@ UNKNOWN_MHC_IDX  = len(mhc_dict)
 test_data["TRBV_Index"] = test_data["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
 test_data["TRBJ_Index"] = test_data["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
 test_data["MHC_Index"]  = test_data["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
+print("TRBV Index: unique=", test_data["TRBV_Index"].nunique(), " min=", test_data["TRBV_Index"].min(), " max=", test_data["TRBV_Index"].max())
+print("MHC Index: unique=", test_data["MHC_Index"].nunique(), " min=", test_data["MHC_Index"].min(), " max=", test_data["MHC_Index"].max())
 
 
 # --- Embeddings ---
@@ -71,6 +87,14 @@ test_dataset = LazyTCR_Epitope_Descriptor_Dataset(
     test_data, tcr_test_embeddings, epitope_test_embeddings , physchem_file, trbv_dict, trbj_dict, mhc_dict
 )
 test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
+print("Länge des Testdatasets (LazyTCR...):", len(test_dataset))
+
+for i in range(len(test_dataset)):
+    try:
+        _ = test_dataset[i]
+    except Exception as e:
+        print(f"Fehler bei Index {i}: {e}")
+
 
 # --- Modell laden ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,14 +111,25 @@ model = TCR_Epitope_Transformer_Reciprocal(
     mhc_vocab_size=UNKNOWN_MHC_IDX + 1
 ).to(device)
 
+'''
 # ========== Download model from wandb ==========
-artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v7aufv3h_best_model:v0"
+artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v7_auf_v3undv2_new_hyper_overh_best_model:v0"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
 model_dir = model_artifact.download()
 model_file = os.path.join(model_dir, os.listdir(model_dir)[0])
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
+'''
+# ========== Load best model locally ==========
+# Der Pfad, unter dem du dein bestes Model gespeichert hast
+model_file = os.path.expanduser(
+    "results/trained_models/v7_auf_v3undv2_new_hyper_over/epochs/model_epoch_1.pt"
+)
 
+if not os.path.isfile(model_file):
+    raise FileNotFoundError(f"Kein Modell unter {model_file} gefunden")
+model.load_state_dict(torch.load(model_file, map_location=device))
+model.eval()
 
 # Testdurchlauf
 all_labels, all_outputs, all_preds = [], [], []
@@ -128,6 +163,7 @@ all_preds = np.array(all_preds)
 auc = roc_auc_score(all_labels, all_outputs)
 ap = average_precision_score(all_labels, all_outputs)
 f1 = f1_score(all_labels, all_preds)
+macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
 accuracy = (all_preds == all_labels).mean()
 precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
@@ -139,6 +175,7 @@ print("\nTestergebnisse:")
 print(f"AUC:       {auc:.4f}")
 print(f"AP:        {ap:.4f}")
 print(f"F1 Score:  {f1:.4f}")
+print(f"Macro F1 Score:  {macro_f1:.4f}")
 print(f"Accuracy:  {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
@@ -148,6 +185,7 @@ wandb.log({
     "test_auc": auc,
     "test_ap": ap,
     "test_f1": f1,
+    "test_macro_f1": macro_f1,
     "test_accuracy": accuracy,
     "test_precision": precision,
     "test_recall": recall
@@ -170,6 +208,7 @@ if "task" in test_data.columns:
             tpp_ap = average_precision_score(labels, outputs) if len(unique_classes) == 2 else None
 
             tpp_f1 = f1_score(labels, preds, zero_division=0)
+            tpp_macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
             tpp_acc = (preds == labels).mean()
             tpp_precision = precision_score(labels, preds, zero_division=0)
             tpp_recall = recall_score(labels, preds, zero_division=0)
@@ -178,6 +217,7 @@ if "task" in test_data.columns:
             print(f"AUC:  {tpp_auc if tpp_auc is not None else 'n/a'}")
             print(f"AP:   {tpp_ap if tpp_ap is not None else 'n/a'}")
             print(f"F1:   {tpp_f1:.4f}")
+            print(f"Macro F1:   {tpp_macro_f1:.4f}")
             print(f"Acc:  {tpp_acc:.4f}")
             print(f"Precision: {tpp_precision:.4f}")
             print(f"Recall:    {tpp_recall:.4f}")
@@ -185,6 +225,7 @@ if "task" in test_data.columns:
             # Wandb-Logging
             log_dict = {
                 f"{tpp}_f1": tpp_f1,
+                f"{tpp}_macro_f1": tpp_macro_f1,
                 f"{tpp}_accuracy": tpp_acc,
                 f"{tpp}_precision": tpp_precision,
                 f"{tpp}_recall": tpp_recall,
