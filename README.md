@@ -18,11 +18,25 @@ We compiled a comprehensive dataset from the following primary sources:
 - **[10X Genomics](https://www.10xgenomics.com/datasets):** High-throughput immune repertoire sequencing data.
 
 
-### Data Processing @ Arina stimmt das noch?
-All raw files are standardized, harmonized, and split into train/validation/test sets. Negative samples are generated synthetically (see “Data Pipeline” section).  
-For details, see the [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section.
+### Data Processing
+
+All raw files are standardized, harmonized, and split into train/validation/test sets. Negative samples are generated synthetically (see “Data Pipeline” section).
+
+- **Train/Validation Dataset Preparation:**  
+  Use `data_scripts/datapipeline/data_pipeline_ProtBERT_trainval-mixed-10Xfix.ipynb` to create the mixed train/validation datasets from the harmonized raw data.
+
+- **Test Dataset Preparation:**  
+  Use `data_scripts/datapipeline/data_pipeline_ProtBERT_testfileonly-10Xfix.ipynb` to prepare the test set.
+
+For details, see also the [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section.
 
 #### Periodic Embedding (PE) Preparation
+
+To generate periodic (sin/cos) physicochemical embeddings (PE) for use in models, run the following notebook:
+
+- `data_scripts/physico-generation.ipynb`
+
+This notebook extracts physicochemical features and applies periodic encoding, producing PE files ready for model training.
 
 #### Physicochemical Latent Embedding (PLE) Preparation
 
@@ -36,6 +50,15 @@ To generate the PLE features, please run the following scripts in order, all loc
    _Generates the final latent embeddings for use in the model._
 
 **You must run these scripts sequentially before training any model version that uses PLE features.**
+---
+
+#### Ready-to-Use Data
+
+If you want to **skip the data generation steps** and use preprocessed data directly, you can download all required datasets and embedding files from our SharePoint:
+
+- [Download Preprocessed Data (SharePoint link)](https://zhaw-my.sharepoint.com/my?id=%2Fpersonal%2Fbogo%5Fzhaw%5Fch%2FDocuments%2FStudentProjects%2FImmunotherapy%2FBA)
+
+Just extract the files into the appropriate folders as described in the repository structure above. This allows you to start training and evaluation without running the data processing scripts or notebooks yourself.
 
 ### Model Architectures
 
