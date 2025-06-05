@@ -24,6 +24,21 @@ We compiled a comprehensive dataset from the following primary sources:
 All raw files are standardized, harmonized, and split into train/validation/test sets. Negative samples are generated synthetically (see “Data Pipeline” section).  
 For details, see the [Data Pipeline 10x-allrows50-datacheck](#BA_ZHAW/data_pipeline_10x-allrows50-datacheck.ipynb) section.
 
+#### Periodic Embedding (PE) Preparation
+
+#### Physicochemical Latent Embedding (PLE) Preparation
+
+To generate the PLE features, please run the following scripts in order, all located in `data_scripts/`:
+
+1. `PLE_physico_raw.py`  
+   _Extracts and preprocesses raw physicochemical data._
+2. `PLE_physico_schema.py`  
+   _Defines and validates the PLE data schema._
+3. `PLE_physico_embedding.py`  
+   _Generates the final latent embeddings for use in the model._
+
+**You must run these scripts sequentially before training any model version that uses PLE features.**
+
 ### Model Architectures
 
 We developed and compared the following transformer-based model versions, each adding new features or architectural components:
@@ -36,9 +51,17 @@ We developed and compared the following transformer-based model versions, each a
 - **V6:** Similar 
 
 ### Repository Structure
-`data/`: This will be used to store data locally\
-`data_scripts/`: Contains all scripts related to data acquisition, preprocessing and analyzing\
-`models/`: Includes different model architectures and training scripts\
+```bash
+├── WnB_Experiments_Datasets/ # Downloaded datasets from Weights & Biases Artifacts
+├── configs/ # All YAML config files for model runs
+├── data_scripts/ # Data processing and preparation scripts
+├── models/ # Model architectures (transformers etc.)
+├── models_scripts/ # Main scripts for training and testing each model version
+├── results/ # Output: trained models, logs, evaluation results - (empty due to storage limitation)
+├── utils/ # Utility functions and helpers
+├── visualizers/ # Scripts for visualization and analysis
+```
+*You will need a data folder to store the data; see configs for how it should be structured.*
 
 ## Prerequisites
 
