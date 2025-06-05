@@ -11,6 +11,7 @@ import yaml
 import sys
 from tqdm import tqdm
 
+# === Local Imports ===
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from models.morning_stars_v1.beta.v7_auf_v3undv2 import TCR_Epitope_Transformer_Reciprocal, LazyTCR_Epitope_Descriptor_Dataset
 from utils.arg_parser import parse_args
@@ -19,6 +20,7 @@ args = parse_args()
 with open(args.configs_path, "r") as file:
     config = yaml.safe_load(file)
 
+# === Load configuration ===
 run = wandb.init(
     project="dataset-allele",
     entity="ba_cancerimmunotherapy",
@@ -27,15 +29,16 @@ run = wandb.init(
     config=config
 )
 
-# --- W&B Testdaten laden ---
+# === Initialize Weights & Biases ===
 artifact = wandb.use_artifact("ba_cancerimmunotherapy/dataset-allele/beta_allele:latest")
 data_dir = artifact.download("./WnB_Testdata")
 
+# === Load Testdata ===
 test_data = pd.read_csv(os.path.join(data_dir, "allele/test.tsv"), sep='\t')
 print("Testdaten Zeilen vor Merge:", len(test_data))
-physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 
-# Direkt nach dem Laden des physchem_map:
+# === Load periodic embeddings (PE) ===
+physchem_map = pd.read_csv("../../data/physico/descriptor_encoded_physchem_mapping.tsv", sep="\t")
 physchem_map = physchem_map.drop_duplicates(subset=["TRB_CDR3", "Epitope"])
 print("Nach drop_duplicates:", len(physchem_map))
 dups = physchem_map.duplicated(subset=["TRB_CDR3", "Epitope"], keep=False)
@@ -51,7 +54,7 @@ print(physchem_map[dups])
 print("Anzahl Duplikate:", dups.sum())
 print("NaNs nach Merge:", test_data.isna().sum())
 
-# Erzeuge Dicts von Training
+# === Create feature-to-index mappings based on the training set ===
 trbv_dict = {v: i for i, v in enumerate(train_df["TRBV"].unique())}
 trbj_dict = {v: i for i, v in enumerate(train_df["TRBJ"].unique())}
 mhc_dict  = {v: i for i, v in enumerate(train_df["MHC"].unique())}
@@ -60,6 +63,7 @@ UNKNOWN_TRBV_IDX = len(trbv_dict)
 UNKNOWN_TRBJ_IDX = len(trbj_dict)
 UNKNOWN_MHC_IDX  = len(mhc_dict)
 
+# Apply the mappings to the test set
 test_data["TRBV_Index"] = test_data["TRBV"].map(trbv_dict).fillna(UNKNOWN_TRBV_IDX).astype(int)
 test_data["TRBJ_Index"] = test_data["TRBJ"].map(trbj_dict).fillna(UNKNOWN_TRBJ_IDX).astype(int)
 test_data["MHC_Index"]  = test_data["MHC"].map(mhc_dict).fillna(UNKNOWN_MHC_IDX).astype(int)
@@ -67,7 +71,7 @@ print("TRBV Index: unique=", test_data["TRBV_Index"].nunique(), " min=", test_da
 print("MHC Index: unique=", test_data["MHC_Index"].nunique(), " min=", test_data["MHC_Index"].min(), " max=", test_data["MHC_Index"].max())
 
 
-# --- Embeddings ---
+# === Load embeddings via lazy loading ===
 def load_h5_lazy(file_path):
     return h5py.File(file_path, 'r')
 
@@ -82,7 +86,7 @@ epitope_test_embeddings = load_h5_lazy(epitope_test_path)
 with h5py.File(physchem_path, 'r') as f:
     inferred_physchem_dim = f["tcr_encoded"].shape[1]
 
-# --- Dataset & Loader ---
+# === Create Dataset & DataLoader ===
 test_dataset = LazyTCR_Epitope_Descriptor_Dataset(
     test_data, tcr_test_embeddings, epitope_test_embeddings , physchem_file, trbv_dict, trbj_dict, mhc_dict
 )
@@ -96,7 +100,7 @@ for i in range(len(test_dataset)):
         print(f"Fehler bei Index {i}: {e}")
 
 
-# --- Modell laden ---
+# === Initialize model ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = TCR_Epitope_Transformer_Reciprocal(
     embed_dim=config['embed_dim'],
@@ -111,7 +115,7 @@ model = TCR_Epitope_Transformer_Reciprocal(
     mhc_vocab_size=UNKNOWN_MHC_IDX + 1
 ).to(device)
 
-'''
+
 # ========== Download model from wandb ==========
 artifact_name = "ba_cancerimmunotherapy/dataset-allele/Run_v7_auf_v3undv2_new_hyper_overh_best_model:v0"
 model_artifact = wandb.Api().artifact(artifact_name, type="model")
@@ -130,8 +134,9 @@ if not os.path.isfile(model_file):
     raise FileNotFoundError(f"Kein Modell unter {model_file} gefunden")
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
+'''
 
-# Testdurchlauf
+# === Run inference on the test set ===
 all_labels, all_outputs, all_preds = [], [], []
 with torch.no_grad():
     for tcr, epitope, tcr_phys, epi_phys, trbv, trbj, mhc, label in tqdm(test_loader, desc="Testing"):
@@ -155,7 +160,7 @@ with torch.no_grad():
         all_outputs.extend(probs.cpu().numpy())
         all_preds.extend(preds.cpu().numpy())
 
-# Metriken
+# === Compute evaluation metrics ===
 all_labels = np.array(all_labels)
 all_outputs = np.array(all_outputs)
 all_preds = np.array(all_preds)
@@ -169,8 +174,6 @@ precision = precision_score(all_labels, all_preds)
 recall = recall_score(all_labels, all_preds)
 tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
 
-
-# Ergebnisse
 print("\nTestergebnisse:")
 print(f"AUC:       {auc:.4f}")
 print(f"AP:        {ap:.4f}")
@@ -181,6 +184,7 @@ print(f"Precision: {precision:.4f}")
 print(f"Recall:    {recall:.4f}")
 print(f"TP: {tp}, TN: {tn}, FP: {fp}, FN: {fn}")
 
+# === Log metrics to Weights & Biases ===
 wandb.log({
     "test_auc": auc,
     "test_ap": ap,
@@ -191,7 +195,7 @@ wandb.log({
     "test_recall": recall
 })
 
-# TPP1–TPP4 Auswertung
+# === TPP1–TPP4 Subset Evaluation ===
 if "task" in test_data.columns:
     all_tasks = test_data["task"].values
     for tpp in ["TPP1", "TPP2", "TPP3", "TPP4"]:
@@ -203,7 +207,6 @@ if "task" in test_data.columns:
 
             unique_classes = np.unique(labels)
 
-            # AUC/AP nur, wenn beide Klassen vorkommen
             tpp_auc = roc_auc_score(labels, outputs) if len(unique_classes) == 2 else None
             tpp_ap = average_precision_score(labels, outputs) if len(unique_classes) == 2 else None
 
@@ -222,7 +225,7 @@ if "task" in test_data.columns:
             print(f"Precision: {tpp_precision:.4f}")
             print(f"Recall:    {tpp_recall:.4f}")
 
-            # Wandb-Logging
+            # Log subset metrics to Weights & Biases
             log_dict = {
                 f"{tpp}_f1": tpp_f1,
                 f"{tpp}_macro_f1": tpp_macro_f1,
@@ -237,7 +240,7 @@ if "task" in test_data.columns:
 
             wandb.log(log_dict)
 
-            # Confusion Matrix loggen
+            # Confusion Matrix
             wandb.log({
                 f"{tpp}_confusion_matrix": wandb.plot.confusion_matrix(
                     y_true=labels.astype(int),
@@ -246,7 +249,7 @@ if "task" in test_data.columns:
                     title=f"Confusion Matrix – {tpp}"
                 )
             })
-            # Histogramm der Modellkonfidenz (Vorhersagewahrscheinlichkeiten)
+            # Plot prediction confidence histogram
             plt.figure(figsize=(6, 4))
             plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
             plt.title(f"Prediction Score Distribution – {tpp}")
@@ -254,7 +257,7 @@ if "task" in test_data.columns:
             plt.ylabel("Frequency")
             plt.tight_layout()
             
-            # Speicherpfad & Logging
+            # Save and Log
             plot_path = f"results/{tpp}_confidence_hist_test.png"
             os.makedirs("results", exist_ok=True)
             plt.savefig(plot_path)

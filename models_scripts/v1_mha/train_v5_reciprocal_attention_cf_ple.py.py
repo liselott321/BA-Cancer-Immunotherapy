@@ -42,13 +42,12 @@ print(f"train_path: {train_path}")
 val_path = args.val if args.val else config['data_paths']['val']
 print(f"val_path: {val_path}")
 
-physchem_path = config['embeddings']['ple_edges']  # z.B. "../../data/physico/descriptor_encoded_physchem.h5"
+physchem_path = config['embeddings']['ple_edges'] 
 ple_edges_path = physchem_path
-# zusätzlich: das Raw-HDF5 zum Auslesen von tcr_raw/epi_raw
 physchem_raw_h5 = config['embeddings']['physchem_raw_h5']
 physchem_file     = h5py.File(physchem_raw_h5, 'r')
 
-PLE_H5 = config['embeddings']['ple_h5']  # z.B. "../../data/physico/ple/descriptor_physchem_ple.h5"
+PLE_H5 = config['embeddings']['ple_h5'] 
 ple_h5 = h5py.File(PLE_H5, 'r')
 ple_tcr_tensor = torch.tensor(ple_h5["tcr_ple"][:], dtype=torch.float32)
 ple_epi_tensor = torch.tensor(ple_h5["epi_ple"][:], dtype=torch.float32)
@@ -513,6 +512,7 @@ for epoch in range(epochs):
                         title=f"Confusion Matrix – {tpp}"
                     )
                 }, step=global_step, commit=False)
+                
                 # Plot prediction confidence histogram
                 plt.figure(figsize=(6, 4))
                 plt.hist(outputs, bins=50, color='skyblue', edgecolor='black')
@@ -526,6 +526,7 @@ for epoch in range(epochs):
                 plt.savefig(plot_path)
                 wandb.log({f"val_{tpp}_prediction_distribution": wandb.Image(plot_path)}, step=global_step)
                 plt.close()
+                
                 # Temperature Scaling
                 raw_logits = np.log(outputs / (1 - outputs + 1e-8))  # reverse sigmoid
                 temperature = fit_temperature(raw_logits, labels)
@@ -542,7 +543,7 @@ for epoch in range(epochs):
                 print(f"  TPP {tpp} — Temperature: {temperature:.4f}")
                 print(f"  Scaled Accuracy: {scaled_acc:.4f}, F1: {scaled_f1:.4f}")
                 
-                # Logge es optional nach wandb
+                # Log wandb
                 wandb.log({
                     f"val_{tpp}_temperature": temperature,
                     f"val_{tpp}_f1_scaled": scaled_f1,
@@ -550,7 +551,8 @@ for epoch in range(epochs):
                     f"val_{tpp}_precision_scaled": scaled_prec,
                     f"val_{tpp}_recall_scaled": scaled_rec
                 }, step=global_step, commit=False)
-                # Reliability Diagram
+                
+                # Reliability diagram
                 prob_true, prob_pred = calibration_curve(labels, scaled_probs, n_bins=10)
                 
                 plt.figure(figsize=(6, 4))
@@ -562,7 +564,7 @@ for epoch in range(epochs):
                 plt.legend()
                 plt.tight_layout()
                 
-                # Save and Logg
+                # Save and Log
                 plot_path_calib = f"results/{tpp}_reliability_epoch{epoch+1}.png"
                 plt.savefig(plot_path_calib)
                 wandb.log({f"val_{tpp}_reliability_diagram": wandb.Image(plot_path_calib)}, step=global_step)
@@ -578,7 +580,7 @@ for epoch in range(epochs):
     os.makedirs(model_save_dir, exist_ok=True)
     model_epoch_path = os.path.join(model_save_dir, f"model_epoch_{epoch+1}.pt")
     torch.save(model.state_dict(), model_epoch_path)
-    print(f" Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
+    print(f"Modell gespeichert nach Epoche {epoch+1}: {model_epoch_path}")
 
     # Early Stopping Check
     if ap > best_ap:

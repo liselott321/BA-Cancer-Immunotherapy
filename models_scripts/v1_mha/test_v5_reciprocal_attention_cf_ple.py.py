@@ -275,6 +275,7 @@ if "task" in df_test.columns:
             plt.ylabel("Frequency")
             plt.tight_layout()
 
+            # Save and Log
             os.makedirs("results", exist_ok=True)
             plot_path = f"results/{tpp}_confidence_hist_test.png"
             plt.savefig(plot_path)

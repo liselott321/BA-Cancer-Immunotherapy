@@ -85,7 +85,7 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
         self.trbj_dict = trbj_dict
         self.mhc_dict = mhc_dict
 
-        # Berechne UNKNOWN-Indices
+        # Compute UNKNOWN-Indices
         self.unknown_trbv_idx = len(trbv_dict)
         self.unknown_trbj_idx = len(trbj_dict)
         self.unknown_mhc_idx = len(mhc_dict)
@@ -94,7 +94,7 @@ class LazyTCR_Epitope_Descriptor_Dataset(torch.utils.data.Dataset):
         self.data_frame["TRBJ_Index"] = data_frame["TRBJ"].map(trbj_dict).fillna(self.unknown_trbj_idx).astype(int)
         self.data_frame["MHC_Index"] = data_frame["MHC"].map(mhc_dict).fillna(self.unknown_mhc_idx).astype(int)
 
-        # Sicherheit
+        # Check 
         assert self.data_frame["TRBV_Index"].max() < (self.unknown_trbv_idx + 1), "TRBV_Index out of range!"
         assert self.data_frame["TRBJ_Index"].max() < (self.unknown_trbj_idx + 1), "TRBJ_Index out of range!"
         assert self.data_frame["MHC_Index"].max() < (self.unknown_mhc_idx + 1), "MHC_Index out of range!"
