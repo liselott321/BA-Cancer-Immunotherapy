@@ -182,7 +182,7 @@ class TCR_Epitope_Transformer_AllFeatures(nn.Module):
         tcr_emb += self.tcr_positional_encoding[:, :tcr_emb.size(1), :]
         epitope_emb += self.epitope_positional_encoding[:, :epitope_emb.size(1), :]
 
-        # Independent transformer layers for TCR
+        # Independent transformer layers for TCR and Epitope
         for layer in self.tcr_transformer_layers:
             tcr_emb = layer(tcr_emb, key_padding_mask=tcr_mask)
 

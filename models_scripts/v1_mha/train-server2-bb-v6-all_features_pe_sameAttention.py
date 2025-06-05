@@ -19,7 +19,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from models.morning_stars_v1.beta.v6_1024_all_features_pe_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
+from models.morning_stars_v1.beta.v4_CE_PE_all_features_sameAtten import TCR_Epitope_Transformer_AllFeatures, LazyFullFeatureDataset
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from utils.arg_parser import * # pars_args
