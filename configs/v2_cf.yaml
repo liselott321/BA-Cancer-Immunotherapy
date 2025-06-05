@@ -1,13 +1,13 @@
-epochs: 20
+epochs: 35
 batch_size: 128
 learning_rate: 0.0005
 embed_dim: 128
 dropout: 0.2
-num_heads: 4
-num_layers: 1
+num_heads: 8
+num_layers: 4
 max_tcr_length: 43
 max_epitope_length: 43
-model_path: "results/trained_models/v7_over.pth"
+model_path: "results/trained_models/v2/v2.pth"
 data_paths:
   train: "../data/splitted_datasets/allele/beta/train.tsv"
   val: "../data/splitted_datasets/allele/beta/validation.tsv"
@@ -21,4 +21,3 @@ embeddings:
   epitope_valid: "../data/embeddings/beta/allele/dimension_1024/padded_valid_epitope_embeddings_final.h5"
   tcr_test: "../data/embeddings/beta/allele/dimension_1024/padded_test_tcr_embeddings_final.h5"
   epitope_test: "../data/embeddings/beta/allele/dimension_1024/padded_test_epitope_embeddings_final.h5"
-  physchem: "../data/physico/descriptor_encoded_physchem.h5"
